@@ -43,7 +43,8 @@ class Settings(BaseSettings):
     opsway_network_prefix: str = "opsway_proj"
 
     # Build
-    build_workspace: str = "/opt/opsway/builds"
+    build_workspace: str = "/app/builds"   # Path inside the container
+    host_build_workspace: str = ""         # Path on the host (e.g. for Mac/Win volume mounting)
     build_timeout: int = 600
     max_concurrent_builds: int = 5
 
@@ -56,7 +57,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 10080   # 7 days
 
-    # Traefik
+    # Webhooks
+    webhook_base_url: str = "http://localhost:8000"
+
     traefik_domain: str = "localhost"
 
     model_config = {"env_file": ".env", "extra": "ignore"}

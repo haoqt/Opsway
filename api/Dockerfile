@@ -5,7 +5,10 @@ WORKDIR /app
 # Install system deps (git for GitPython, docker CLI)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
+    openssh-client \
     curl \
+    gcc \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Poetry

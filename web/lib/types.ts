@@ -35,6 +35,8 @@ export interface Project {
 
 export interface ProjectDetail extends Project {
   webhook_id: string | null;
+  webhook_url: string | null;
+  webhook_secret: string | null;
   deploy_key_public: string | null;
   branches: Branch[];
 }
@@ -79,4 +81,12 @@ export interface Build {
 
 export interface BuildDetail extends Build {
   branch: Branch;
+  project_name?: string;
+}
+
+export interface GlobalStats {
+  active_builds: number;
+  deployments_today: number;
+  containers: number;
+  projects: number;
 }

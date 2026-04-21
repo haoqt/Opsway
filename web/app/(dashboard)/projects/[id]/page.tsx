@@ -1,4 +1,5 @@
 "use client";
+import React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { projectsApi, branchesApi } from "@/lib/api";
@@ -19,10 +20,32 @@ export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
 
-  const { data: project, isLoading } = useQuery({
+  const [activeTab, setActiveTab] = React.useState<"pipeline" | "history" | "settings">("pipeline");
+
+  const { data: project, isLoading, refetch } = useQuery({
     queryKey: ["project", id],
     queryFn: () => projectsApi.get(id).then((r) => r.data as ProjectDetail),
     refetchInterval: 10_000,
+  });
+
+  const { mutate: testConnection, isPending: isTesting } = useMutation({
+    mutationFn: () => projectsApi.testConnection(id),
+    onSuccess: (res) => {
+      alert(res.data.message);
+    },
+    onError: (err: any) => {
+      alert(err.response?.data?.detail || "Connection test failed");
+    },
+  });
+
+  const { mutate: syncRepo, isPending: isSyncing } = useMutation({
+    mutationFn: () => projectsApi.sync(id),
+    onSuccess: () => {
+      alert("Repository synchronization started!");
+    },
+    onError: (err: any) => {
+      alert(err.response?.data?.detail || "Sync failed");
+    },
   });
 
   if (isLoading) return <LoadingSkeleton />;
@@ -35,72 +58,267 @@ export default function ProjectDetailPage() {
   return (
     <>
       <Topbar title={project.name}>
-        <a
-          href={`https://github.com/${project.repo_full_name}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1.5 text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors"
-        >
-          <ExternalLink size={12} /> {project.repo_full_name}
-        </a>
+        <div className="flex items-center gap-4">
+          <a
+            href={`https://github.com/${project.repo_full_name}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors"
+          >
+            <ExternalLink size={12} /> {project.repo_full_name}
+          </a>
+        </div>
       </Topbar>
 
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
-        {/* Project info */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <OdooVersionBadge version={project.odoo_version} />
-          <span className="text-xs text-[hsl(var(--muted-foreground))]">
-            {project.branches?.length ?? 0} branches · Created {formatTimeAgo(project.created_at)}
-          </span>
-        </div>
-
-        {/* Branches pipeline — 3 columns */}
-        <div className="grid grid-cols-3 gap-4 items-start">
-          <BranchColumn
-            title="Development"
-            environment="development"
-            branches={devBranches}
-            projectId={id}
-            projectSlug={project.slug}
-            onRefresh={() => qc.invalidateQueries({ queryKey: ["project", id] })}
-          />
-          <BranchColumn
-            title="Staging"
-            environment="staging"
-            branches={stagingBranches}
-            projectId={id}
-            projectSlug={project.slug}
-            onRefresh={() => qc.invalidateQueries({ queryKey: ["project", id] })}
-          />
-          <BranchColumn
-            title="Production"
-            environment="production"
-            branches={prodBranches}
-            projectId={id}
-            projectSlug={project.slug}
-            onRefresh={() => qc.invalidateQueries({ queryKey: ["project", id] })}
-          />
-        </div>
-
-        {/* Settings strip */}
-        <Card className="flex items-center gap-4 flex-wrap">
-          <div>
-            <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider">Webhook Secret</p>
-            <code className="mt-0.5 text-xs font-mono text-[hsl(var(--muted-foreground))]">
-              {project.webhook_id ? `#${project.webhook_id}` : "Not registered"}
-            </code>
+      <div className="flex-1 overflow-y-auto flex flex-col">
+        {/* Tabs Navigation */}
+        <div className="px-6 pt-6 border-b border-[hsl(var(--border))]">
+          <div className="flex items-center gap-6">
+            <TabButton 
+              active={activeTab === "pipeline"} 
+              onClick={() => setActiveTab("pipeline")}
+              icon={<Layers size={14} />}
+              label="Pipeline"
+            />
+            <TabButton 
+              active={activeTab === "history"} 
+              onClick={() => setActiveTab("history")}
+              icon={<RefreshCw size={14} />}
+              label="History"
+            />
+            <TabButton 
+              active={activeTab === "settings"} 
+              onClick={() => setActiveTab("settings")}
+              icon={<Play size={14} />}
+              label="Settings"
+            />
           </div>
-          {project.deploy_key_public && (
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider">Deploy Key</p>
-              <code className="block truncate text-xs font-mono text-[hsl(var(--muted-foreground))] mt-0.5">
-                {project.deploy_key_public.slice(0, 60)}…
-              </code>
+        </div>
+
+        <div className="p-6 space-y-6 flex-1">
+          {activeTab === "pipeline" && (
+            <>
+              {/* Project info */}
+              <div className="flex items-center gap-3 flex-wrap">
+                <OdooVersionBadge version={project.odoo_version} />
+                <span className="text-xs text-[hsl(var(--muted-foreground))]">
+                  {project.branch_count} branches · Created {formatTimeAgo(project.created_at)}
+                </span>
+              </div>
+
+              {/* Branches pipeline — 3 columns */}
+              <div className="grid grid-cols-3 gap-4 items-start">
+                <BranchColumn
+                  title="Development"
+                  environment="development"
+                  branches={devBranches}
+                  projectId={id}
+                  projectSlug={project.slug}
+                  onRefresh={() => qc.invalidateQueries({ queryKey: ["project", id] })}
+                />
+                <BranchColumn
+                  title="Staging"
+                  environment="staging"
+                  branches={stagingBranches}
+                  projectId={id}
+                  projectSlug={project.slug}
+                  onRefresh={() => qc.invalidateQueries({ queryKey: ["project", id] })}
+                />
+                <BranchColumn
+                  title="Production"
+                  environment="production"
+                  branches={prodBranches}
+                  projectId={id}
+                  projectSlug={project.slug}
+                  onRefresh={() => qc.invalidateQueries({ queryKey: ["project", id] })}
+                />
+              </div>
+            </>
+          )}
+
+          {activeTab === "history" && (
+            <div className="space-y-4">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-4">Branch Activity & History</h3>
+              {project.branches?.length === 0 ? (
+                <EmptyState title="No activity yet" description="History will appear here once branches are created." />
+              ) : (
+                <div className="space-y-3">
+                  {project.branches?.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()).map(branch => (
+                    <Card key={branch.id} className="p-4 flex items-center justify-between gap-4 group">
+                      <div className="flex items-center gap-4">
+                        <div className="h-8 w-8 rounded-full bg-[hsl(var(--primary)/0.1)] flex items-center justify-center text-[hsl(var(--primary))]">
+                          <GitBranch size={16} />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold">{branch.name}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <EnvironmentBadge env={branch.environment} />
+                            <span className="text-[10px] text-[hsl(var(--muted-foreground))]">
+                              Updated {formatTimeAgo(branch.updated_at)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                         {branch.last_commit_sha && (
+                          <div className="hidden md:flex flex-col items-end">
+                            <p className="text-[11px] font-mono text-[hsl(var(--muted-foreground))]">{shortSha(branch.last_commit_sha)}</p>
+                            <p className="text-[10px] text-[hsl(var(--muted-foreground))] truncate max-w-[200px]">{branch.last_commit_message}</p>
+                          </div>
+                        )}
+                        <Link href={`/projects/${id}/branches/${branch.id}/builds`}>
+                          <Button variant="outline" size="sm" className="h-8 text-xs">View History</Button>
+                        </Link>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              )}
             </div>
           )}
-        </Card>
+
+          {activeTab === "settings" && (
+            <div className="max-w-4xl space-y-6">
+              {/* Git Integration & Manual Webhook */}
+              <Card className="p-4 space-y-4 shadow-sm border-[hsl(var(--border))]">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] flex items-center gap-2">
+                    <RefreshCw size={12} className={isTesting ? "animate-spin" : ""} />
+                    Git Integration & Webhooks
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-[10px]"
+                      onClick={() => syncRepo()}
+                      loading={isSyncing}
+                    >
+                      <RefreshCw size={10} className={isSyncing ? "animate-spin" : ""} />
+                      Sync Repository
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-[10px]"
+                      onClick={() => testConnection()}
+                      loading={isTesting}
+                    >
+                      Test Connection
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Webhook Info */}
+                  <div className="space-y-3 rounded-lg bg-[hsl(var(--secondary)/0.5)] p-3 border border-[hsl(var(--border))]">
+                    <div>
+                      <p className="text-[10px] font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-tight mb-1">Payload URL</p>
+                      <div className="flex items-center gap-2">
+                        <code className="text-[11px] font-mono bg-black/20 px-1.5 py-0.5 rounded flex-1 truncate">
+                          {project.webhook_url}
+                        </code>
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => navigator.clipboard.writeText(project.webhook_url || "")}>
+                          <Copy size={10} />
+                        </Button>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-tight mb-1">Secret</p>
+                      <div className="flex items-center gap-2">
+                        <code className="text-[11px] font-mono bg-black/20 px-1.5 py-0.5 rounded flex-1 truncate">
+                          {project.webhook_secret}
+                        </code>
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => navigator.clipboard.writeText(project.webhook_secret || "")}>
+                          <Copy size={10} />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Deploy Key */}
+                  {project.deploy_key_public && (
+                    <div className="space-y-2 rounded-lg bg-[hsl(var(--secondary)/0.5)] p-3 border border-[hsl(var(--border))]">
+                      <p className="text-[10px] font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-tight">Public Deploy Key (SSH)</p>
+                      <div className="flex items-start gap-2">
+                        <code className="text-[10px] font-mono bg-black/20 p-2 rounded flex-1 break-all line-clamp-3 overflow-hidden">
+                          {project.deploy_key_public}
+                        </code>
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 shrink-0" onClick={() => navigator.clipboard.writeText(project.deploy_key_public || "")}>
+                          <Copy size={10} />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-4 mt-4 border-t border-[hsl(var(--border))] space-y-4">
+                  <h4 className="text-xs font-bold text-[hsl(var(--muted-foreground))] uppercase tracking-wider">Build Limits (Automated Cleanup)</h4>
+                  <div className="grid grid-cols-3 gap-6">
+                    <div>
+                      <label className="text-[10px] font-medium text-[hsl(var(--muted-foreground))] uppercase">Development</label>
+                      <input
+                        type="number"
+                        defaultValue={project.build_limit_dev}
+                        className="w-full mt-1 bg-black/20 border border-[hsl(var(--border))] rounded px-2 py-1 text-xs"
+                        onBlur={(e) => {
+                          const val = parseInt(e.target.value);
+                          if (!isNaN(val)) projectsApi.update(id, { build_limit_dev: val }).then(() => qc.invalidateQueries({ queryKey: ["project", id] }));
+                        }}
+                      />
+                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] mt-1">Oldest builds auto-deleted.</p>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-medium text-[hsl(var(--muted-foreground))] uppercase">Staging</label>
+                      <input
+                        type="number"
+                        defaultValue={project.build_limit_staging}
+                        className="w-full mt-1 bg-black/20 border border-[hsl(var(--border))] rounded px-2 py-1 text-xs"
+                        onBlur={(e) => {
+                          const val = parseInt(e.target.value);
+                          if (!isNaN(val)) projectsApi.update(id, { build_limit_staging: val }).then(() => qc.invalidateQueries({ queryKey: ["project", id] }));
+                        }}
+                      />
+                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] mt-1">Manual cleanup required.</p>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-medium text-[hsl(var(--muted-foreground))] uppercase">Production</label>
+                      <input
+                        type="number"
+                        defaultValue={project.build_limit_production}
+                        className="w-full mt-1 bg-black/20 border border-[hsl(var(--border))] rounded px-2 py-1 text-xs"
+                        onBlur={(e) => {
+                          const val = parseInt(e.target.value);
+                          if (!isNaN(val)) projectsApi.update(id, { build_limit_production: val }).then(() => qc.invalidateQueries({ queryKey: ["project", id] }));
+                        }}
+                      />
+                      <p className="text-[9px] text-[hsl(var(--muted-foreground))] mt-1">Manual cleanup required.</p>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            </div>
+          )}
+        </div>
       </div>
     </>
+  );
+}
+
+function TabButton({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "flex items-center gap-2 px-1 pb-4 text-xs font-semibold border-b-2 transition-all",
+        active 
+          ? "text-[hsl(var(--primary))] border-[hsl(var(--primary))]" 
+          : "text-[hsl(var(--muted-foreground))] border-transparent hover:text-[hsl(var(--foreground))]"
+      )}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
 
@@ -164,6 +382,17 @@ function BranchCard({
   const { mutate: deploy, isPending } = useMutation({
     mutationFn: () => branchesApi.deploy(projectId, branch.id),
     onSuccess: onRefresh,
+  });
+
+  const { mutate: promote, isPending: isPromoting } = useMutation({
+    mutationFn: (targetEnv: string) => branchesApi.promote(projectId, branch.id, targetEnv),
+    onSuccess: () => {
+      onRefresh();
+      // Optionally show a toast/alert
+    },
+    onError: (err: any) => {
+      alert(err.response?.data?.detail || "Promotion failed");
+    },
   });
 
   const isRunning = branch.container_status === "running";
@@ -237,6 +466,26 @@ function BranchCard({
             </Button>
           </a>
         )}
+
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {["development", "staging", "production"].filter(env => env !== branch.environment).map(env => (
+            <Button
+              key={env}
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[10px] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.1)] transition-all"
+              loading={isPromoting}
+              onClick={() => {
+                const action = (env === "production" || (env === "staging" && branch.environment === "development")) ? "Promote" : "Demote";
+                if (confirm(`${action} ${branch.name} to ${env}?`)) {
+                  promote(env);
+                }
+              }}
+            >
+              <ChevronRight size={9} className="mr-0.5" /> {env === "development" ? "Dev" : env === "staging" ? "Staging" : "Prod"}
+            </Button>
+          ))}
+        </div>
       </div>
 
       {branch.last_deployed_at && (

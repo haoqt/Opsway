@@ -1,7 +1,7 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
-import { projectsApi } from "@/lib/api";
-import { Project, Build } from "@/lib/types";
+import { projectsApi, statsApi } from "@/lib/api";
+import { Project, Build, GlobalStats } from "@/lib/types";
 import { Topbar } from "@/components/layout/sidebar";
 import { Card, CardHeader, CardTitle, Skeleton, EmptyState } from "@/components/ui/primitives";
 import { BuildStatusBadge, EnvironmentBadge } from "@/components/ui/badges";
@@ -13,14 +13,19 @@ import {
 import Link from "next/link";
 
 export default function DashboardPage() {
-  const { data: projects, isLoading } = useQuery({
+  const { data: projects, isLoading: projectsLoading } = useQuery({
     queryKey: ["projects"],
     queryFn: () => projectsApi.list().then((r) => r.data as Project[]),
     refetchInterval: 15_000,
   });
 
-  const totalProjects = projects?.length ?? 0;
-  const activeBuilds = projects?.reduce((acc, p) => acc + (p.active_builds || 0), 0) ?? 0;
+  const { data: stats, isLoading: statsLoading } = useQuery({
+    queryKey: ["stats"],
+    queryFn: () => statsApi.get(),
+    refetchInterval: 15_000,
+  });
+
+  const isLoadingGlobal = projectsLoading || statsLoading;
 
   return (
     <>
@@ -32,28 +37,28 @@ export default function DashboardPage() {
           <StatCard
             icon={FolderGit2}
             label="Projects"
-            value={isLoading ? "—" : String(totalProjects)}
+            value={isLoadingGlobal ? "—" : String(stats?.projects ?? 0)}
             sub="connected repos"
             color="violet"
           />
           <StatCard
             icon={Rocket}
             label="Active Builds"
-            value={isLoading ? "—" : String(activeBuilds)}
+            value={isLoadingGlobal ? "—" : String(stats?.active_builds ?? 0)}
             sub="running now"
             color="blue"
           />
           <StatCard
             icon={CheckCircle2}
             label="Deployments Today"
-            value="—"
-            sub="success rate"
+            value={isLoadingGlobal ? "—" : String(stats?.deployments_today ?? 0)}
+            sub="past 24 hours"
             color="emerald"
           />
           <StatCard
             icon={Activity}
             label="Containers"
-            value="—"
+            value={isLoadingGlobal ? "—" : String(stats?.containers ?? 0)}
             sub="instances running"
             color="amber"
           />
@@ -71,7 +76,7 @@ export default function DashboardPage() {
             </Link>
           </div>
 
-          {isLoading ? (
+          {projectsLoading ? (
             <div className="grid grid-cols-3 gap-4">
               {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-40" />)}
             </div>

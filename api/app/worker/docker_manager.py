@@ -3,6 +3,8 @@ Docker SDK wrapper — manage Odoo containers and networks
 """
 import uuid
 import logging
+import socket
+import random
 from dataclasses import dataclass
 from typing import Optional, Generator
 
@@ -37,6 +39,7 @@ class OdooContainerConfig:
     mailhog_host: str = ""
     mailhog_smtp_port: int = 1025
     workers: int = 2
+    init_db: bool = False      # if True, runs with -i base --stop-after-init
 
 
 class DockerManager:
@@ -50,12 +53,54 @@ class DockerManager:
     def _network_name(self, project_slug: str) -> str:
         return f"{settings.opsway_network_prefix}_{project_slug}"
 
-    def _container_name(self, project_slug: str, branch_name: str) -> str:
+    def get_container_name(self, project_slug: str, branch_name: str) -> str:
+        safe_project = project_slug.replace("_", "-").lower()
         safe_branch = branch_name.replace("/", "-").replace("_", "-").lower()
-        return f"opsway_{project_slug}_{safe_branch}"
+        return f"opsway-{safe_project}-{safe_branch}"
 
-    def _db_container_name(self, project_slug: str, branch_name: str) -> str:
-        return f"{self._container_name(project_slug, branch_name)}_pg"
+    def get_db_container_name(self, project_slug: str, branch_name: str) -> str:
+        return f"{self.get_container_name(project_slug, branch_name)}-pg"
+
+    def _find_free_port(self, start=10000, end=20000) -> Optional[int]:
+        """Find an available port on the host in the specified range."""
+        used_ports = set()
+        
+        # 1. Check all Docker containers for mapped ports
+        try:
+            for container in self.client.containers.list(all=True):
+                ports = container.attrs.get("HostConfig", {}).get("PortBindings")
+                if ports:
+                    for binding_list in ports.values():
+                        if binding_list:
+                            for binding in binding_list:
+                                p = binding.get("HostPort")
+                                if p:
+                                    used_ports.add(int(p))
+        except Exception as e:
+            logger.warning(f"Error scanning for used Docker ports: {e}")
+
+        # 2. Try to find a port not in used_ports AND available for binding via socket
+        # Use a randomized starting point to avoid collisions with parallel workers
+        search_range = list(range(start, end + 1))
+        random.shuffle(search_range)
+        
+        for port in search_range:
+            if port in used_ports:
+                continue
+            
+            # Check if OS says the port is free to bind
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                try:
+                    s.settimeout(0.5)
+                    s.bind(("0.0.0.0", port))
+                    # If we can bind, it's really free
+                    return port
+                except (OSError, socket.error):
+                    # Port is probably used by the system or another process
+                    logger.debug(f"Port {port} is busy at host level, skipping...")
+                    continue
+        
+        return None
 
     def _traefik_host_rule(self, project_slug: str, branch_name: str) -> str:
         safe_branch = branch_name.replace("/", "-").replace("_", "-").lower()
@@ -95,7 +140,7 @@ class DockerManager:
         self, project_slug: str, branch_name: str, db_name: str
     ) -> tuple[Container, str]:
         """Start a dedicated PostgreSQL container for an Odoo instance."""
-        name = self._db_container_name(project_slug, branch_name)
+        name = self.get_db_container_name(project_slug, branch_name)
         network = self._network_name(project_slug)
 
         try:
@@ -115,6 +160,12 @@ class DockerManager:
                 "POSTGRES_USER": "odoo",
                 "POSTGRES_PASSWORD": "odoo",
             },
+            labels={
+                "opsway.managed": "true",
+                "opsway.project": project_slug,
+                "opsway.branch": branch_name,
+                "opsway.type": "database",
+            },
             network=network,
             detach=True,
             restart_policy={"Name": "unless-stopped"},
@@ -126,11 +177,16 @@ class DockerManager:
 
     def start_odoo_container(self, config: OdooContainerConfig) -> Container:
         """Build and start an Odoo container for a branch."""
-        name = self._container_name(config.project_slug, config.branch_name)
+        name = self.get_container_name(config.project_slug, config.branch_name)
         network = self._network_name(config.project_slug)
-        db_host = self._db_container_name(config.project_slug, config.branch_name)
+        db_host = self.get_db_container_name(config.project_slug, config.branch_name)
         image = ODOO_VERSION_IMAGES.get(config.odoo_version, settings.odoo_image_v17)
-        url = self._public_url(config.project_slug, config.branch_name)
+        # Find a free host port for NAT
+        host_port = self._find_free_port()
+        if host_port:
+            url = f"http://localhost:{host_port}"
+        else:
+            url = self._public_url(config.project_slug, config.branch_name)
 
         # Stop existing if any
         self.stop_container(name, remove=True)
@@ -167,22 +223,44 @@ class DockerManager:
         # Volume mounts
         volumes = {}
         if config.repo_path:
-            volumes[config.repo_path] = {
+            # If we are running in Docker-out-of-Docker (e.g. Mac/Prod), 
+            # we must provide the HOST path to the Docker daemon.
+            if settings.host_build_workspace:
+                host_path = config.repo_path.replace(settings.build_workspace, settings.host_build_workspace)
+            else:
+                host_path = config.repo_path
+                
+            volumes[host_path] = {
                 "bind": "/mnt/extra-addons",
                 "mode": "ro" if config.environment == "production" else "rw",
             }
 
+        # Construction of the start command
+        command = ["odoo", "-d", config.db_name]
+        if config.init_db:
+            command += ["-i", "base", "--stop-after-init"]
+            
         container = self.client.containers.run(
             image,
             name=name,
+            command=command,
             environment=env,
             labels=labels,
             volumes=volumes,
             network=network,
-            networks=["traefik_public"] if True else [],
+            ports={"8069/tcp": host_port} if host_port and not config.init_db else None,
             detach=True,
-            restart_policy={"Name": "unless-stopped"},
+            remove=config.init_db,    # cleanup init containers immediately
+            restart_policy={"Name": "unless-stopped"} if not config.init_db else None,
         )
+
+        if config.init_db:
+            # Wait for init to finish
+            result = container.wait()
+            exit_code = result.get("StatusCode", 0)
+            if exit_code != 0:
+                raise Exception(f"Database initialization failed with exit code {exit_code}")
+            return None, None
 
         # Also attach to traefik network
         try:
@@ -192,7 +270,7 @@ class DockerManager:
             logger.warning(f"Could not attach to traefik_public: {e}")
 
         logger.info(f"Started Odoo container: {name} → {url}")
-        return container
+        return container, host_port
 
     # ── Container control ──────────────────────────────────────
 
@@ -261,6 +339,57 @@ class DockerManager:
                 "project": c.labels.get("opsway.project"),
                 "branch": c.labels.get("opsway.branch"),
                 "environment": c.labels.get("opsway.environment"),
+                "type": c.labels.get("opsway.type", "odoo"),
             }
             for c in containers
         ]
+
+    def list_all_opsway_resources(self) -> dict:
+        """Categorize all Opsway-related containers."""
+        all_containers = self.client.containers.list(all=True)
+        
+        instances = []
+        services = []
+        
+        for c in all_containers:
+            # Instances have 'opsway.managed=true' label
+            if c.labels.get("opsway.managed") == "true":
+                instances.append(c)
+            # Services have 'opsway_' prefix or compose label
+            elif c.name.startswith("opsway_") or c.labels.get("com.docker.compose.project") == "opsway":
+                services.append(c)
+                
+        return {
+            "instances": instances,
+            "services": services
+        }
+
+    def get_container_metrics(self, container: Container) -> dict:
+        """Calculate CPU and Memory usage percentages."""
+        try:
+            stats = container.stats(stream=False)
+            
+            # MEMORY
+            mem_usage = stats["memory_stats"].get("usage", 0)
+            mem_limit = stats["memory_stats"].get("limit", 1)
+            mem_percent = (mem_usage / mem_limit) * 100.0 if mem_limit > 0 else 0
+            
+            # CPU
+            cpu_percent = 0.0
+            cpu_delta = stats["cpu_stats"]["cpu_usage"]["total_usage"] - stats["precpu_stats"]["cpu_usage"]["total_usage"]
+            system_delta = stats["cpu_stats"].get("system_cpu_usage", 0) - stats["precpu_stats"].get("system_cpu_usage", 0)
+            
+            if system_delta > 0 and cpu_delta > 0:
+                # Use online_cpus if available, else count percpu_usage, else default to 1
+                cpu_count = stats["cpu_stats"].get("online_cpus", 
+                                len(stats["cpu_stats"]["cpu_usage"].get("percpu_usage", [1])))
+                cpu_percent = (cpu_delta / system_delta) * cpu_count * 100.0
+                
+            return {
+                "cpu": round(cpu_percent, 2),
+                "memory": round(mem_percent, 2),
+                "status": container.status
+            }
+        except Exception as e:
+            logger.warning(f"Error getting stats for {container.name}: {e}")
+            return {"cpu": 0, "memory": 0, "status": container.status}

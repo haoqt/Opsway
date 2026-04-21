@@ -61,6 +61,25 @@ def clone_or_pull(
     return repo, local_path
 
 
+def list_remote_branches(repo_url: str, deploy_key_path: str | None = None) -> list[str]:
+    """List all branch names for a remote repository."""
+    env = {}
+    if deploy_key_path and os.path.exists(deploy_key_path):
+        env["GIT_SSH_COMMAND"] = f"ssh -i {deploy_key_path} -o StrictHostKeyChecking=no"
+
+    g = git.cmd.Git()
+    with g.custom_environment(**env):
+        output = g.ls_remote("--heads", repo_url)
+    
+    branches = []
+    for line in output.splitlines():
+        if "\trefs/heads/" in line:
+            name = line.split("\trefs/heads/")[-1]
+            branches.append(name)
+    
+    return branches
+
+
 def get_latest_commit(repo: Repo) -> dict:
     commit = repo.head.commit
     return {

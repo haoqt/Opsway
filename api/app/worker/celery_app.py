@@ -14,6 +14,7 @@ celery_app = Celery(
         "app.worker.tasks.build",
         "app.worker.tasks.cleanup",
         "app.worker.tasks.backup",
+        "app.worker.tasks.repo",
     ],
 )
 

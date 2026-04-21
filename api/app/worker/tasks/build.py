@@ -49,6 +49,43 @@ def _update_build_status(session: Session, build: Build, status: BuildStatus, **
     session.commit()
 
 
+def _is_db_initialized(docker: DockerManager, pg_container_name: str, db_name: str) -> bool:
+    """Check if Odoo database has been initialized with the 'base' module."""
+    check_query = f"SELECT 1 FROM information_schema.tables WHERE table_name = 'ir_module_module';"
+    exit_code, output = docker.exec_command(
+        pg_container_name,
+        f"psql -U odoo -d {db_name} -c \"{check_query}\""
+    )
+    return exit_code == 0 and "1 row" in output
+
+
+def _prune_old_builds(session, project, branch):
+    """Prune old builds for the branch if it's in development environment."""
+    if branch.environment != EnvironmentType.DEVELOPMENT:
+        return
+
+    # Count builds for this branch
+    count = session.query(Build).filter(Build.branch_id == branch.id).count()
+    limit = project.build_limit_dev
+
+    if count > limit:
+        # Fetch the oldest builds to delete
+        to_delete = (
+            session.query(Build)
+            .filter(Build.branch_id == branch.id)
+            .order_by(Build.created_at.asc())
+            .limit(count - limit)
+            .all()
+        )
+        
+        for build in to_delete:
+            # Note: redis log cleanup is handled by shared logic or expiration if configured
+            # Here we just delete the DB record
+            session.delete(build)
+        
+        session.commit()
+
+
 @celery_app.task(bind=True, name="app.worker.tasks.build.trigger_build", queue="builds")
 def trigger_build(self, build_id: str, branch_id: str):
     """
@@ -96,7 +133,11 @@ def trigger_build(self, build_id: str, branch_id: str):
         try:
             # ── Step 2: Clone / pull repo ─────────────────────
             log("📥 Cloning/pulling repository...")
-            repo_url = f"https://github.com/{project.repo_full_name}.git"
+            if project.deploy_key_private:
+                repo_url = f"git@github.com:{project.repo_full_name}.git"
+            else:
+                repo_url = f"https://github.com/{project.repo_full_name}.git"
+
             if project.deploy_key_private:
                 # Write deploy key to temp file
                 key_path = f"/tmp/deploy_key_{project.id}"
@@ -171,15 +212,44 @@ def trigger_build(self, build_id: str, branch_id: str):
                 mailhog_host=settings.mailhog_host,
                 mailhog_smtp_port=settings.mailhog_smtp_port,
             )
-            odoo_container = docker.start_odoo_container(odoo_config)
+
+            # ── Step 7.1: Check and Initialize DB if needed ──────
+            if not _is_db_initialized(docker, pg_container.name, db_name):
+                log("🆕 Database is empty. Initializing Odoo schema (base module)...")
+                log("   (This may take 1-2 minutes)")
+                init_config = OdooContainerConfig(
+                    **{k: v for k, v in odoo_config.__dict__.items() if k != "init_db"},
+                    init_db=True
+                )
+                try:
+                    docker.start_odoo_container(init_config)
+                    log("✅ Database initialization complete")
+                except Exception as e:
+                    log(f"💥 Database initialization FAILED: {e}")
+                    raise e
+            else:
+                log("✅ Database already initialized")
+
+            try:
+                odoo_container, mapped_port = docker.start_odoo_container(odoo_config)
+                
+                # Update branch state in DB
+                branch.container_id = odoo_container.id
+                if mapped_port:
+                    branch.container_url = f"http://localhost:{mapped_port}"
+                else:
+                    branch.container_url = docker._public_url(project.slug, branch.name)
+                
+                branch.container_status = "running"
+                log(f"✅ Odoo started! Accessible at: {branch.container_url}")
+            except Exception as e:
+                log(f"❌ Failed to start Odoo: {e}")
+                raise e
 
             # Wait for Odoo to start
             log("   Waiting for Odoo HTTP server...")
-            time.sleep(10)
+            time.sleep(5)
             odoo_container.reload()
-
-            container_url = docker._public_url(project.slug, branch.name)
-            log(f"✅ Odoo is running: {container_url}")
 
             # ── Step 8: Run unit tests (dev only) ─────────────
             test_passed = None
@@ -199,20 +269,15 @@ def trigger_build(self, build_id: str, branch_id: str):
                 if match:
                     test_count = int(match.group(1))
                 test_passed = exit_code == 0
-                status_icon = "✅" if test_passed else "❌"
-                log(f"{status_icon} Tests: {'passed' if test_passed else 'failed'} ({test_count or 0} run)")
-                for line in test_output.splitlines()[-20:]:
-                    log(f"   {line}")
+                log(f"{'✅' if test_passed else '❌'} Tests: {'passed' if test_passed else 'failed'} ({test_count or 0} run)")
 
             # ── Step 9: Update branch + build ─────────────────
-            branch.container_id = odoo_container.id
             branch.container_name = odoo_container.name
-            branch.container_url = container_url
-            branch.container_status = "running"
             branch.db_name = db_name
             branch.last_commit_sha = commit_info["sha"]
             branch.last_commit_message = commit_info["message"]
             branch.last_deployed_at = datetime.now(timezone.utc)
+            session.commit()
 
             finished = datetime.now(timezone.utc)
             _update_build_status(
@@ -222,9 +287,12 @@ def trigger_build(self, build_id: str, branch_id: str):
                 test_passed=test_passed,
                 test_count=test_count,
             )
+            
+            # Prune old builds after success
+            _prune_old_builds(session, project, branch)
 
             log(f"🎉 Build SUCCESS in {build.duration_seconds}s")
-            log(f"   Access Odoo at: {container_url}")
+            log(f"   Access Odoo at: {branch.container_url}")
 
         except Exception as exc:
             logger.exception(f"Build {build_id_str} failed: {exc}")

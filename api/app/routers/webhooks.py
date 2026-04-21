@@ -122,7 +122,9 @@ async def _handle_push(payload: dict, project: Project, db: AsyncSession):
     branch_id = str(branch.id)
 
     # Dispatch async Celery task
-    trigger_build.delay(build_id, branch_id)
+    task = trigger_build.delay(build_id, branch_id)
+    build.task_id = task.id
+    await db.flush()
 
     logger.info(f"Build {build_id[:8]} queued for {project.slug}/{branch_name}@{after_sha[:8]}")
     return {

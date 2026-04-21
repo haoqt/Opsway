@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { buildsApi } from "@/lib/api";
 import { BuildDetail } from "@/lib/types";
 import { Topbar } from "@/components/layout/sidebar";
@@ -11,8 +11,9 @@ import { formatDuration, formatTimeAgo, shortSha } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import {
   Terminal, GitCommit, Clock, CheckCircle2,
-  XCircle, AlertCircle, Download, Maximize2
+  XCircle, AlertCircle, Download, Maximize2, Square, RotateCcw
 } from "lucide-react";
+import { BuildTimeline } from "@/components/builds/build-timeline";
 
 export default function BuildDetailPage() {
   const { buildId } = useParams<{ buildId: string }>();
@@ -71,6 +72,30 @@ export default function BuildDetailPage() {
     a.click();
   };
 
+  const handleCancel = async () => {
+    if (confirm("Are you sure you want to stop this build?")) {
+      try {
+        await buildsApi.cancel(buildId);
+        refetch();
+      } catch (err) {
+        alert("Failed to cancel build");
+      }
+    }
+  };
+
+  const handleRetry = async () => {
+    if (confirm("Are you sure you want to retry this build?")) {
+      try {
+        const res = await buildsApi.retry(buildId);
+        window.location.href = `/builds/${res.data.id}`;
+      } catch (err) {
+        alert("Failed to retry build");
+      }
+    }
+  };
+
+  const isCancellable = build?.status === "pending" || build?.status === "building";
+
   if (!build) {
     return (
       <>
@@ -85,7 +110,30 @@ export default function BuildDetailPage() {
   return (
     <>
       <Topbar title={`Build #${shortSha(build.id)}`}>
-        <BuildStatusBadge status={build.status} size="md" />
+        <div className="flex items-center gap-3">
+          <BuildStatusBadge status={build.status} size="md" />
+          {isCancellable ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 border-red-500/20 text-red-400 hover:bg-red-500/10 hover:text-red-400"
+              onClick={handleCancel}
+            >
+              <Square size={12} className="fill-current" />
+              Stop Build
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 border-blue-500/20 text-blue-400 hover:bg-blue-500/10 hover:text-blue-400"
+              onClick={handleRetry}
+            >
+              <RotateCcw size={12} />
+              Retry Build
+            </Button>
+          )}
+        </div>
       </Topbar>
 
       <div className="flex-1 overflow-hidden flex flex-col p-5 gap-4">
@@ -121,6 +169,8 @@ export default function BuildDetailPage() {
             )}
           </MetaCard>
         </div>
+        
+        <BuildTimeline status={build.status} className="px-4" />
 
         {/* Error banner */}
         {build.error_message && (

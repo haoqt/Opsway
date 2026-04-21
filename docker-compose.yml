@@ -15,7 +15,6 @@ volumes:
   redis_data:
   minio_data:
   traefik_certs:
-  build_workspace:
 
 services:
   # -------------------------------------------------------------
@@ -24,19 +23,19 @@ services:
   traefik:
     image: traefik:v3.0
     container_name: opsway_traefik
-    restart: unless-stopped
+    environment:
+      - DOCKER_API_VERSION=1.54
     command:
       - --api.dashboard=true
       - --api.insecure=true
       - --providers.docker=true
+      - --providers.docker.endpoint=unix:///var/run/docker.sock
       - --providers.docker.exposedbydefault=false
       - --providers.docker.network=traefik_public
       - --providers.file.directory=/etc/traefik/dynamic
       - --providers.file.watch=true
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
-      - --entrypoints.web.http.redirections.entryPoint.to=websecure
-      - --entrypoints.web.http.redirections.entryPoint.scheme=https
       - --log.level=INFO
       - --accesslog=true
     ports:
@@ -44,7 +43,7 @@ services:
       - "443:443"
       - "8080:8080"  # Traefik dashboard
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - traefik_certs:/certs
       - ./infra/traefik/dynamic:/etc/traefik/dynamic:ro
     networks:
@@ -166,9 +165,13 @@ services:
       - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
       - JWT_EXPIRE_MINUTES=${JWT_EXPIRE_MINUTES:-10080}
       - INITIAL_ACCOUNTS=${INITIAL_ACCOUNTS:-}
+      - WEBHOOK_BASE_URL=${WEBHOOK_BASE_URL:-http://localhost:8000}
+      - BUILD_WORKSPACE=${BUILD_WORKSPACE:-/app/builds}
+      - HOST_BUILD_WORKSPACE=${HOST_BUILD_WORKSPACE}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - build_workspace:/opt/opsway/builds
+      - ./builds:/app/builds
+      - ./api:/app
     ports:
       - "8000:8000"
     networks:
@@ -209,14 +212,16 @@ services:
       - MAILHOG_HOST=${MAILHOG_HOST:-mailhog}
       - MAILHOG_SMTP_PORT=${MAILHOG_SMTP_PORT:-1025}
       - APP_ENV=${APP_ENV:-development}
-      - BUILD_WORKSPACE=${BUILD_WORKSPACE:-/opt/opsway/builds}
+      - BUILD_WORKSPACE=${BUILD_WORKSPACE:-/app/builds}
+      - HOST_BUILD_WORKSPACE=${HOST_BUILD_WORKSPACE}
       - BUILD_TIMEOUT=${BUILD_TIMEOUT:-600}
       - ODOO_IMAGE_V16=${ODOO_IMAGE_V16:-odoo:16.0}
       - ODOO_IMAGE_V17=${ODOO_IMAGE_V17:-odoo:17.0}
       - ODOO_IMAGE_V18=${ODOO_IMAGE_V18:-odoo:18.0}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - build_workspace:/opt/opsway/builds
+      - ./builds:/app/builds
+      - ./api:/app
     networks:
       - opsway_internal
 
@@ -235,6 +240,8 @@ services:
     environment:
       - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+    volumes:
+      - ./api:/app
     networks:
       - opsway_internal
 

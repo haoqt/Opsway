@@ -63,6 +63,9 @@ class ProjectCreate(BaseModel):
     repo_full_name: str = Field(..., description="owner/repo format")
     odoo_version: str | None = Field(None, description="16, 17, or 18")
     custom_addons_path: str = "custom_addons"
+    build_limit_dev: int = 5
+    build_limit_staging: int = 2
+    build_limit_production: int = 1
 
 
 class ProjectUpdate(BaseModel):
@@ -70,6 +73,9 @@ class ProjectUpdate(BaseModel):
     description: str | None = None
     odoo_version: str | None = None
     custom_addons_path: str | None = None
+    build_limit_dev: int | None = None
+    build_limit_staging: int | None = None
+    build_limit_production: int | None = None
 
 
 class ProjectOut(BaseModel):
@@ -88,12 +94,17 @@ class ProjectOut(BaseModel):
     updated_at: datetime
     branch_count: int = 0
     active_builds: int = 0
+    build_limit_dev: int
+    build_limit_staging: int
+    build_limit_production: int
 
     model_config = {"from_attributes": True}
 
 
 class ProjectDetail(ProjectOut):
     webhook_id: str | None
+    webhook_url: str | None
+    webhook_secret: str | None
     deploy_key_public: str | None
     branches: list["BranchOut"] = []
 
@@ -171,6 +182,7 @@ class BuildOut(BaseModel):
 
 class BuildDetail(BuildOut):
     branch: BranchOut
+    project_name: str | None = None
 
 
 # ──────────────────────────────────────────────────────────────
@@ -201,3 +213,9 @@ class PaginatedResponse(BaseModel):
 class MessageResponse(BaseModel):
     message: str
     detail: str | None = None
+
+class GlobalStats(BaseModel):
+    active_builds: int
+    deployments_today: int
+    containers: int
+    projects: int

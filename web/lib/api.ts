@@ -51,6 +51,8 @@ export const projectsApi = {
   }) => api.post("/projects", data),
   update: (id: string, data: object) => api.patch(`/projects/${id}`, data),
   delete: (id: string) => api.delete(`/projects/${id}`),
+  testConnection: (id: string) => api.post(`/projects/${id}/test-connection`),
+  sync: (id: string) => api.post(`/projects/${id}/sync`),
 };
 
 export const branchesApi = {
@@ -65,12 +67,24 @@ export const branchesApi = {
     api.delete(`/projects/${projectId}/branches/${branchId}`),
   deploy: (projectId: string, branchId: string) =>
     api.post(`/projects/${projectId}/branches/${branchId}/deploy`),
+  promote: (projectId: string, branchId: string, targetEnv: string) =>
+    api.post(`/projects/${projectId}/branches/${branchId}/switch-environment?target_env=${targetEnv}`),
   listBuilds: (projectId: string, branchId: string) =>
     api.get(`/projects/${projectId}/branches/${branchId}/builds`),
 };
 
 export const buildsApi = {
+  listAll: (params?: { skip?: number; limit?: number }) => api.get("/builds", { params }),
   get: (buildId: string) => api.get(`/builds/${buildId}`),
   cancel: (buildId: string) => api.post(`/builds/${buildId}/cancel`),
+  retry: (buildId: string) => api.post(`/builds/${buildId}/retry`),
   logsUrl: (buildId: string) => `${API_URL}/api/builds/${buildId}/logs`,
+};
+
+export const monitoringApi = {
+  getStats: () => api.get("/monitoring/stats"),
+};
+
+export const statsApi = {
+  get: () => api.get("/stats").then((r) => r.data as GlobalStats),
 };

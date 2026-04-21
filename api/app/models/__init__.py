@@ -117,6 +117,11 @@ class Project(Base):
     odoo_version: Mapped[str | None] = mapped_column(String(10))  # e.g. "17"
     custom_addons_path: Mapped[str | None] = mapped_column(String(255), default="custom_addons")
 
+    # Build limits
+    build_limit_dev: Mapped[int] = mapped_column(Integer, default=5)
+    build_limit_staging: Mapped[int] = mapped_column(Integer, default=2)
+    build_limit_production: Mapped[int] = mapped_column(Integer, default=1)
+
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
@@ -235,6 +240,7 @@ class Build(Base):
 
     # Log (stored in Redis as stream, small summary here)
     log_key: Mapped[str | None] = mapped_column(String(255))  # Redis key for full log
+    task_id: Mapped[str | None] = mapped_column(String(100))  # Celery Task ID
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
