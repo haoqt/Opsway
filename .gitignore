@@ -1,51 +1,41 @@
-# Byte-compiled / optimized / DLL files
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# CMake
-cmake-build-*/
-
-# C extensions
-# *.so
-
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib64/
-parts/
-sdist/
-var/
-wheels/
+*.so
+.env
+.venv/
+env/
+venv/
 *.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
+dist/
+build/
+.pytest_cache/
 
-# PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
-*.spec
+# Node
+node_modules/
+.next/
+out/
+.npm
+*.tsbuildinfo
 
-# Pycharm project info
-.idea/
-
-# Individual project
+# Docker
 *.log
-/pg_data/
-# /odoo.conf
-/.local/
-odoo_storage/*
-pg_data/*
-venv/*
 
-# MacOS generated files #
-######################
+# OS
 .DS_Store
-.DS_Store?
+.idea/
+*.swp
+*.swo
+.vscode/
+
+# Opsway build workspace (auto-generated)
+/builds/
+
+# Secrets
+*.pem
+*.key
+
+.agents/
+CLAUDE.md
+DEVELOPMENT.md

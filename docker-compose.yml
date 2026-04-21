@@ -1,0 +1,265 @@
+# =============================================================
+# OPSWAY — Docker Compose Infrastructure
+# =============================================================
+
+networks:
+  opsway_internal:
+    name: opsway_internal
+    driver: bridge
+  traefik_public:
+    name: traefik_public
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  traefik_certs:
+  build_workspace:
+
+services:
+  # -------------------------------------------------------------
+  # Traefik — Reverse Proxy + Auto SSL + Dynamic Routing
+  # -------------------------------------------------------------
+  traefik:
+    image: traefik:v3.0
+    container_name: opsway_traefik
+    restart: unless-stopped
+    command:
+      - --api.dashboard=true
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=traefik_public
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.web.http.redirections.entryPoint.to=websecure
+      - --entrypoints.web.http.redirections.entryPoint.scheme=https
+      - --log.level=INFO
+      - --accesslog=true
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"  # Traefik dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_certs:/certs
+      - ./infra/traefik/dynamic:/etc/traefik/dynamic:ro
+    networks:
+      - traefik_public
+      - opsway_internal
+
+  # -------------------------------------------------------------
+  # PostgreSQL — Opsway Metadata Database
+  # -------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: opsway_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-opsway}
+      POSTGRES_USER: ${POSTGRES_USER:-opsway}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opsway_secret}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - opsway_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-opsway}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # -------------------------------------------------------------
+  # Redis — Celery Broker + Cache + Pub/Sub
+  # -------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: opsway_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - opsway_internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # -------------------------------------------------------------
+  # MinIO — S3-compatible Object Storage (Backups)
+  # -------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: opsway_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-opsway_minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-opsway_minio_secret}
+    volumes:
+      - minio_data:/data
+    networks:
+      - opsway_internal
+      - traefik_public
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.minio-console.rule=Host(`minio.localhost`)
+      - traefik.http.routers.minio-console.service=minio-console
+      - traefik.http.services.minio-console.loadbalancer.server.port=9001
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # -------------------------------------------------------------
+  # MailHog — Email catcher for dev/staging Odoo instances
+  # -------------------------------------------------------------
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: opsway_mailhog
+    restart: unless-stopped
+    networks:
+      - opsway_internal
+      - traefik_public
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.mailhog.rule=Host(`mail.localhost`)
+      - traefik.http.routers.mailhog.service=mailhog
+      - traefik.http.services.mailhog.loadbalancer.server.port=8025
+
+  # -------------------------------------------------------------
+  # Opsway API — FastAPI Backend
+  # -------------------------------------------------------------
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: opsway_api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://opsway:opsway_secret@postgres:5432/opsway}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - SECRET_KEY=${SECRET_KEY:-change-me}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-opsway_minio}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-opsway_minio_secret}
+      - MINIO_BUCKET_BACKUPS=${MINIO_BUCKET_BACKUPS:-opsway-backups}
+      - MINIO_SECURE=${MINIO_SECURE:-false}
+      - MAILHOG_HOST=${MAILHOG_HOST:-mailhog}
+      - MAILHOG_SMTP_PORT=${MAILHOG_SMTP_PORT:-1025}
+      - APP_ENV=${APP_ENV:-development}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
+      - JWT_EXPIRE_MINUTES=${JWT_EXPIRE_MINUTES:-10080}
+      - INITIAL_ACCOUNTS=${INITIAL_ACCOUNTS:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - build_workspace:/opt/opsway/builds
+    ports:
+      - "8000:8000"
+    networks:
+      - opsway_internal
+      - traefik_public
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.api.rule=Host(`api.localhost`)
+      - traefik.http.routers.api.service=api
+      - traefik.http.services.api.loadbalancer.server.port=8000
+
+  # -------------------------------------------------------------
+  # Opsway Worker — Celery Build Workers
+  # -------------------------------------------------------------
+  worker:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: opsway_worker
+    restart: unless-stopped
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=5 -Q builds,default
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://opsway:opsway_secret@postgres:5432/opsway}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      - SECRET_KEY=${SECRET_KEY:-change-me}
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-opsway_minio}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-opsway_minio_secret}
+      - MINIO_SECURE=${MINIO_SECURE:-false}
+      - MAILHOG_HOST=${MAILHOG_HOST:-mailhog}
+      - MAILHOG_SMTP_PORT=${MAILHOG_SMTP_PORT:-1025}
+      - APP_ENV=${APP_ENV:-development}
+      - BUILD_WORKSPACE=${BUILD_WORKSPACE:-/opt/opsway/builds}
+      - BUILD_TIMEOUT=${BUILD_TIMEOUT:-600}
+      - ODOO_IMAGE_V16=${ODOO_IMAGE_V16:-odoo:16.0}
+      - ODOO_IMAGE_V17=${ODOO_IMAGE_V17:-odoo:17.0}
+      - ODOO_IMAGE_V18=${ODOO_IMAGE_V18:-odoo:18.0}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - build_workspace:/opt/opsway/builds
+    networks:
+      - opsway_internal
+
+  # -------------------------------------------------------------
+  # Celery Beat — Scheduled Tasks (backups, cleanup)
+  # -------------------------------------------------------------
+  beat:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: opsway_beat
+    restart: unless-stopped
+    command: celery -A app.worker.celery_app beat --loglevel=info --scheduler celery.beat:PersistentScheduler
+    depends_on:
+      - redis
+    environment:
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+    networks:
+      - opsway_internal
+
+  # -------------------------------------------------------------
+  # Opsway Web — Next.js Dashboard
+  # -------------------------------------------------------------
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      target: development
+    container_name: opsway_web
+    restart: unless-stopped
+    environment:
+      - NEXT_PUBLIC_API_URL=http://api.localhost
+      - NEXT_PUBLIC_APP_ENV=development
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+      - /app/.next
+    networks:
+      - opsway_internal
+      - traefik_public
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.web.rule=Host(`localhost`) || Host(`opsway.localhost`)
+      - traefik.http.routers.web.service=web
+      - traefik.http.services.web.loadbalancer.server.port=3000

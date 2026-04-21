@@ -1,43 +1,30 @@
-Opsway is a DevOps platform designed to manage environments, automate deployments, and standardize operational workflows across development, staging, and production systems.
+# Opsway CI/CD
 
-Opsway acts as a central control layer between source code repositories and server infrastructure, enabling teams to deploy, configure, and operate systems in a consistent, auditable, and automated way.
+Welcome to **Opsway** — A self-hosted, git-native CI/CD platform specifically designed for Odoo. Opsway provides an automated deployment pipeline, dynamic environment generation, and a centralized control plane for your Odoo projects, replicating the developer experience of platforms like Odoo.sh but entirely on your own infrastructure.
 
-⸻
+## 🚀 Features (Phase 1 MVP)
 
-🎯 Goals
-	•	Provide a single source of truth for environment and deployment management
-	•	Reduce manual operations and deployment risks
-	•	Standardize DevOps workflows across multiple servers and projects
-	•	Enable API-driven CI/CD automation (GitHub-first)
+- **Git-Native Deployments**: Automatic builds and deployments triggered by GitHub webhooks.
+- **Dynamic Environments**: Instantly spin up dedicated Odoo containers for Development and Staging branches.
+- **Wildcard Subdomains**: Automatic routing via Traefik (e.g. `feature-x--my-project.localhost`).
+- **Real-Time Logs**: View the build timeline and live deployment logs right inside the dashboard via SSE.
+- **Docker Orchestration**: Complete isolation for each database and Odoo instance.
+- **Integrated Tooling**: Bundled with PostgreSQL, Redis, MailHog (email interceptor), and MinIO (for backups).
 
-⸻
+## 📚 Getting Started
 
-🚀 Key Features
+For a detailed guide on how to set up the environment, configure the `.env` variables, and run Opsway locally using Docker Compose, please read the:
 
-🔹 Environment Management
-	•	Manage dev / staging / production environments
-	•	Define server roles, services, and configurations per environment
-	•	Support environment-level variables and secrets
+[👉 Developer Guide (DEVELOPMENT.md)](./DEVELOPMENT.md)
 
-🔹 Automated Deployment (CI/CD)
-	•	Trigger deployments via GitHub Webhooks / GitHub API
-	•	Support branch-based and tag-based deployment strategies
-	•	Track deployment history, status, and logs
+## 🏗️ Architecture
 
-🔹 Infrastructure & Configuration Control
-	•	Centralized server configuration management
-	•	Define deployment flows and operational rules
-	•	Enforce consistent behavior across environments
+Opsway is composed of three main layers:
 
-🔹 API-First Design
-	•	Fully controllable via REST API
-	•	Easy integration with CI pipelines, bots, and external tools
-	•	Designed for automation and extensibility
+1. **Next.js Dashboard** (`web/`): A dark-themed, responsive React interface to manage projects, branches, and builds.
+2. **FastAPI Backend** (`api/`): The core API gateway handling GitHub OAuth, user metadata, Webhooks, and SSE Log streaming.
+3. **Celery Worker** (`api/app/worker/`): Background workers that interact with the Docker SDK and Git bindings to securely clone repositories, resolve Odoo versions, generate docker networks, and spin up isolated Odoo instances.
 
-⸻
+## 🧪 License
 
-🧩 Typical Use Cases
-	•	Deploying applications from GitHub to multiple environments
-	•	Managing multiple servers with consistent configuration
-	•	Controlling release workflows with approval and rollback
-	•	Serving as an internal DevOps control plane for engineering teams
+Internal Tooling - Copyright 2026.

@@ -1,0 +1,14 @@
+http:
+  routers:
+    # Wildcard router for dynamic Odoo instances
+    # Pattern: <branch>-<project>.localhost
+    odoo-instances:
+      rule: "HostRegexp(`{subdomain:[a-z0-9-]+}.localhost`)"
+      service: noop
+      priority: 1
+
+  services:
+    noop:
+      loadBalancer:
+        servers:
+          - url: "http://localhost:1"
