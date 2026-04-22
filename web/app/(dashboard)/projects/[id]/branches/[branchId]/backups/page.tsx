@@ -41,12 +41,58 @@ export default function BranchBackupsPage() {
     },
   });
 
+  const { mutate: restoreBackup, isPending: isRestoring } = useMutation({
+    mutationFn: (backupId: string) => branchesApi.restoreBackup(projectId, branchId, backupId),
+    onSuccess: () => {
+      alert("Restoration task triggered. The service will be temporarily unavailable while the database and filestore are being restored.");
+    },
+    onError: (err: any) => {
+      alert(err.response?.data?.detail || "Failed to trigger restoration");
+    },
+  });
+
+  const { mutate: restoreFromUpload, isPending: isUploading } = useMutation({
+    mutationFn: (file: File) => branchesApi.restoreUpload(projectId, branchId, file),
+    onSuccess: () => {
+      alert("External backup uploaded and restoration task triggered. The service will be temporarily unavailable.");
+      qc.invalidateQueries({ queryKey: ["backups", projectId, branchId] });
+    },
+    onError: (err: any) => {
+      alert(err.response?.data?.detail || "Failed to upload and restore");
+    },
+  });
+
   const handleDownload = (backupId: string) => {
     const token = localStorage.getItem("opsway_token");
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
     const downloadUrl = `${apiUrl}/api/projects/${projectId}/branches/${branchId}/backups/${backupId}/download?token=${token}`;
     window.open(downloadUrl, "_blank");
   };
+
+  const handleRestore = (backupId: string) => {
+    if (confirm("Are you sure you want to RESTORE this backup? This will WIPE the current database and filestore for this branch. The service will be stopped during restoration.")) {
+      restoreBackup(backupId);
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    if (!file.name.endsWith(".tar.gz")) {
+      alert("Please upload a .tar.gz backup file.");
+      return;
+    }
+    
+    if (confirm(`Are you sure you want to UPLOAD and RESTORE "${file.name}"? This will WIPE the current database and filestore.`)) {
+      restoreFromUpload(file);
+    }
+    
+    // Clear the input
+    e.target.value = "";
+  };
+
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const formatBytes = (bytes: number | null) => {
     if (!bytes) return "0 B";
@@ -59,15 +105,34 @@ export default function BranchBackupsPage() {
   return (
     <div className="flex flex-col h-full bg-[hsl(var(--background))]">
       <Topbar title="Backups">
-        <Button
-          size="sm"
-          className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
-          onClick={() => createBackup()}
-          loading={isCreating}
-        >
-          <Database size={14} className="mr-2" />
-          Create Backup
-        </Button>
+        <div className="flex items-center gap-2">
+          <input
+            type="file"
+            ref={fileInputRef}
+            className="hidden"
+            accept=".tar.gz"
+            onChange={handleFileUpload}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs border-dashed border-primary/50 text-primary hover:bg-primary/5"
+            onClick={() => fileInputRef.current?.click()}
+            loading={isUploading}
+          >
+            <Download size={14} className="mr-2 rotate-180" />
+            Upload & Restore
+          </Button>
+          <Button
+            size="sm"
+            className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+            onClick={() => createBackup()}
+            loading={isCreating}
+          >
+            <Database size={14} className="mr-2" />
+            Create Backup
+          </Button>
+        </div>
       </Topbar>
       
       <div className="flex-1 overflow-y-auto p-6">
@@ -120,6 +185,16 @@ export default function BranchBackupsPage() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 border-amber-500/50 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20"
+                    disabled={backup.status !== "completed" || isRestoring}
+                    onClick={() => handleRestore(backup.id)}
+                  >
+                    <RefreshCw size={14} className="mr-2" />
+                    Restore
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"

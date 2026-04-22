@@ -77,6 +77,15 @@ export const branchesApi = {
     api.post(`/projects/${projectId}/branches/${branchId}/backups`),
   getBackupDownloadUrl: (projectId: string, branchId: string, backupId: string) =>
     api.get(`/projects/${projectId}/branches/${branchId}/backups/${backupId}/download`),
+  restoreBackup: (projectId: string, branchId: string, backupId: string) =>
+    api.post(`/projects/${projectId}/branches/${branchId}/backups/${backupId}/restore`),
+  restoreUpload: (projectId: string, branchId: string, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return api.post(`/projects/${projectId}/branches/${branchId}/backups/restore-upload`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
 };
 
 export const buildsApi = {

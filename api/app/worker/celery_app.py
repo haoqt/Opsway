@@ -14,6 +14,7 @@ celery_app = Celery(
         "app.worker.tasks.build",
         "app.worker.tasks.cleanup",
         "app.worker.tasks.backup",
+        "app.worker.tasks.restore",
         "app.worker.tasks.repo",
     ],
 )
@@ -27,6 +28,7 @@ celery_app.conf.update(
     task_routes={
         "app.worker.tasks.build.*": {"queue": "builds"},
         "app.worker.tasks.backup.*": {"queue": "default"},
+        "app.worker.tasks.restore.*": {"queue": "default"},
         "app.worker.tasks.cleanup.*": {"queue": "default"},
     },
     task_acks_late=True,
