@@ -379,8 +379,13 @@ function BranchCard({
 }) {
   const qc = useQueryClient();
 
-  const { mutate: deploy, isPending } = useMutation({
-    mutationFn: () => branchesApi.deploy(projectId, branch.id),
+  const { mutate: deployToProd, isPending: isDeploying } = useMutation({
+    mutationFn: async () => {
+      if (branch.environment !== "production") {
+        await branchesApi.promote(projectId, branch.id, "production");
+      }
+      return branchesApi.deploy(projectId, branch.id);
+    },
     onSuccess: onRefresh,
   });
 
@@ -443,10 +448,12 @@ function BranchCard({
           variant="ghost"
           size="sm"
           className="h-6 px-2 text-[10px] flex-1"
-          loading={isPending}
-          onClick={() => deploy()}
+          loading={isDeploying}
+          onClick={() => {
+            deployToProd();
+          }}
         >
-          <Rocket size={9} /> Deploy
+          <Rocket size={9} /> Deploy to Prod
         </Button>
 
         <Link href={`/projects/${projectId}/branches/${branch.id}/builds`}>
@@ -464,7 +471,7 @@ function BranchCard({
         )}
 
         <div className="flex items-center gap-1.5 flex-wrap">
-          {["development", "staging", "production"].filter(env => env !== branch.environment).map(env => (
+          {["development", "staging"].filter(env => env !== branch.environment).map(env => (
             <Button
               key={env}
               variant="ghost"
@@ -472,13 +479,10 @@ function BranchCard({
               className="h-6 px-2 text-[10px] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.1)] transition-all"
               loading={isPromoting}
               onClick={() => {
-                const action = (env === "production" || (env === "staging" && branch.environment === "development")) ? "Promote" : "Demote";
-                if (confirm(`${action} ${branch.name} to ${env}?`)) {
-                  promote(env);
-                }
+                promote(env);
               }}
             >
-              <ChevronRight size={9} className="mr-0.5" /> {env === "development" ? "Dev" : env === "staging" ? "Staging" : "Prod"}
+              <ChevronRight size={9} className="mr-0.5" /> {env === "development" ? "Dev" : "Staging"}
             </Button>
           ))}
         </div>

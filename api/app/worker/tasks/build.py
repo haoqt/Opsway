@@ -230,6 +230,23 @@ def trigger_build(self, build_id: str, branch_id: str):
             else:
                 log("✅ Database already initialized")
 
+            # ── Step 7.2: Auto-Rollback Preparation (Production) ──
+            old_container_id = None
+            old_container_name = None
+            if branch.environment == EnvironmentType.PRODUCTION and branch.container_id:
+                try:
+                    c = docker.get_container(branch.container_id)
+                    if c:
+                        old_container_name = c.name
+                        old_container_id = c.id
+                        temp_name = f"{old_container_name}-old-{int(time.time())}"
+                        log(f"   📦 Renaming old container to {temp_name} for fallback")
+                        c.rename(temp_name)
+                        # We stop it so the new container can use resources if needed, though port 8069 is internal
+                        c.stop(timeout=10)
+                except Exception as e:
+                    logger.warning(f"Could not prepare old container for rollback: {e}")
+
             try:
                 odoo_container, mapped_port = docker.start_odoo_container(odoo_config)
                 
@@ -250,6 +267,10 @@ def trigger_build(self, build_id: str, branch_id: str):
             log("   Waiting for Odoo HTTP server...")
             time.sleep(5)
             odoo_container.reload()
+            
+            if odoo_container.status != "running":
+                logs = odoo_container.logs().decode("utf-8")
+                raise Exception(f"Container exited unexpectedly. Logs: {logs[-500:]}")
 
             # ── Step 8: Run unit tests (dev only) ─────────────
             test_passed = None
@@ -294,6 +315,14 @@ def trigger_build(self, build_id: str, branch_id: str):
             log(f"🎉 Build SUCCESS in {build.duration_seconds}s")
             log(f"   Access Odoo at: {branch.container_url}")
 
+            # Clean up old container if rollback preparation occurred
+            if 'old_container_id' in locals() and old_container_id:
+                try:
+                    log(f"   🧹 Cleaning up old container {old_container_name}")
+                    docker.stop_container(old_container_id, remove=True)
+                except Exception as e:
+                    logger.warning(f"Failed to cleanup old container: {e}")
+
         except Exception as exc:
             logger.exception(f"Build {build_id_str} failed: {exc}")
             log(f"💥 Build FAILED: {exc}")
@@ -304,4 +333,27 @@ def trigger_build(self, build_id: str, branch_id: str):
                 duration_seconds=int((finished - (build.started_at or finished)).total_seconds()),
                 error_message=str(exc),
             )
+            
+            # Execute Rollback if applicable
+            if branch.environment == EnvironmentType.PRODUCTION and 'old_container_id' in locals() and old_container_id:
+                log("🔄 Initiating Auto-Rollback to previous container...")
+                try:
+                    # Remove the failed new container
+                    new_container_name = docker.get_container_name(project.slug, branch.name)
+                    docker.stop_container(new_container_name, remove=True)
+                    
+                    # Restore old container
+                    c = docker.get_container(old_container_id)
+                    if c:
+                        c.rename(old_container_name)
+                        c.start()
+                        log(f"✅ Rollback successful. Container {old_container_name} restored.")
+                        branch.container_status = "running"
+                        branch.container_id = c.id
+                        session.commit()
+                except Exception as rollback_exc:
+                    log(f"❌ Rollback failed: {rollback_exc}")
+                    branch.container_status = "stopped"
+                    session.commit()
+                    
             raise

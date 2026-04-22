@@ -109,6 +109,10 @@ async def terminal_endpoint(
 
         for task in pending:
             task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
             
     except Exception as e:
         await websocket.send_text(f"\r\nError: {e}\r\n")
