@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
 from app.core.database import create_tables
-from app.routers import auth, projects, branches, builds, webhooks, monitoring, stats, terminal
+from app.routers import auth, projects, branches, builds, webhooks, monitoring, stats, terminal, backups
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -40,7 +40,12 @@ app = FastAPI(
 # ── CORS ────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_url, "http://localhost:3000", "http://opsway.localhost"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://opsway.localhost",
+        settings.frontend_url,
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -56,6 +61,7 @@ app.include_router(builds.router, prefix=API_PREFIX)
 app.include_router(monitoring.router, prefix=API_PREFIX)
 app.include_router(stats.router, prefix=API_PREFIX)
 app.include_router(terminal.router, prefix=API_PREFIX)
+app.include_router(backups.router, prefix=API_PREFIX)
 app.include_router(webhooks.router)  # No /api prefix — raw webhook URL
 
 

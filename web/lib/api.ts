@@ -71,6 +71,12 @@ export const branchesApi = {
     api.post(`/projects/${projectId}/branches/${branchId}/switch-environment?target_env=${targetEnv}`),
   listBuilds: (projectId: string, branchId: string) =>
     api.get(`/projects/${projectId}/branches/${branchId}/builds`),
+  listBackups: (projectId: string, branchId: string) =>
+    api.get(`/projects/${projectId}/branches/${branchId}/backups`),
+  createBackup: (projectId: string, branchId: string) =>
+    api.post(`/projects/${projectId}/branches/${branchId}/backups`),
+  getBackupDownloadUrl: (projectId: string, branchId: string, backupId: string) =>
+    api.get(`/projects/${projectId}/branches/${branchId}/backups/${backupId}/download`),
 };
 
 export const buildsApi = {

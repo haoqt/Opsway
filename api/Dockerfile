@@ -9,7 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     gcc \
     python3-dev \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
+
+# Get Docker CLI from official image
+COPY --from=docker:latest /usr/local/bin/docker /usr/local/bin/docker
 
 # Install Poetry
 RUN pip install poetry==1.8.3

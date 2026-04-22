@@ -102,6 +102,9 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-opsway_minio_secret}
     volumes:
       - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
     networks:
       - opsway_internal
       - traefik_public
@@ -123,6 +126,8 @@ services:
     image: mailhog/mailhog:latest
     container_name: opsway_mailhog
     restart: unless-stopped
+    ports:
+      - "8025:8025"
     networks:
       - opsway_internal
       - traefik_public
@@ -256,12 +261,14 @@ services:
     container_name: opsway_web
     restart: unless-stopped
     environment:
-      - NEXT_PUBLIC_API_URL=http://api.localhost
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
       - NEXT_PUBLIC_APP_ENV=development
     volumes:
       - ./web:/app
       - /app/node_modules
       - /app/.next
+    ports:
+      - "3000:3000"
     networks:
       - opsway_internal
       - traefik_public

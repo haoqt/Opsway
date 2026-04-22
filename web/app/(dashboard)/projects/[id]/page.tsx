@@ -11,7 +11,7 @@ import { formatTimeAgo, formatDuration, shortSha } from "@/lib/utils";
 import {
   GitBranch, ExternalLink, Rocket, RefreshCw,
   GitCommit, Terminal, Layers, Play, Copy,
-  CheckCircle2, AlertCircle, ChevronRight
+  CheckCircle2, AlertCircle, ChevronRight, Database, Database as DatabaseIcon
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -458,7 +458,13 @@ function BranchCard({
 
         <Link href={`/projects/${projectId}/branches/${branch.id}/builds`}>
           <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]">
-            <Layers size={9} /> Builds
+            <Layers size={9} className="mr-1" /> Builds
+          </Button>
+        </Link>
+
+        <Link href={`/projects/${projectId}/branches/${branch.id}/backups`}>
+          <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]">
+            <DatabaseIcon size={9} className="mr-1" /> Backups
           </Button>
         </Link>
 
