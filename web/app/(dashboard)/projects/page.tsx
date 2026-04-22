@@ -42,7 +42,7 @@ function ProjectsPageInner() {
 
   return (
     <>
-      <Topbar title="Projects">
+      <Topbar title="Projects" backHref="/dashboard">
         <Button variant="primary" size="sm" onClick={() => setShowNew(true)}>
           <Plus size={13} /> New Project
         </Button>

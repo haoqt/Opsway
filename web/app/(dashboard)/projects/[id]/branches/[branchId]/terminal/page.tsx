@@ -25,7 +25,7 @@ export default function TerminalPage() {
   if (isLoading) {
     return (
       <>
-        <Topbar title="Terminal" />
+        <Topbar title="Terminal" backHref={`/projects/${projectId}`} />
         <div className="flex-1 flex items-center justify-center text-xs text-zinc-500 gap-2">
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-[hsl(var(--primary))] border-t-transparent" />
           Connecting...
@@ -36,7 +36,7 @@ export default function TerminalPage() {
 
   return (
     <div className="flex flex-col h-full bg-[#0d1117]">
-      <Topbar title={`Terminal: ${branch?.name || "..."}`}>
+      <Topbar title={`Terminal: ${branch?.name || "..."}`} backHref={`/projects/${projectId}`}>
         <div className="flex items-center gap-2">
            <span className="flex items-center gap-1.5 text-[11px] text-emerald-400">
              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />

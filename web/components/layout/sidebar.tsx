@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, FolderGit2, Rocket, Settings,
   GitBranch, Terminal, ChevronRight, Activity,
-  LogOut, Bell, Search
+  LogOut, Bell, Search, ChevronLeft
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -76,9 +76,18 @@ export function Sidebar() {
   );
 }
 
-export function Topbar({ title, children }: { title: string; children?: React.ReactNode }) {
+export function Topbar({ title, backHref, children }: { title: string; backHref?: string; children?: React.ReactNode }) {
   return (
     <header className="flex h-14 shrink-0 items-center gap-4 border-b border-[hsl(var(--border))] bg-[hsl(var(--background))] px-6">
+      {backHref && (
+        <Link 
+          href={backHref} 
+          className="mr-1 flex h-8 w-8 items-center justify-center rounded-lg border border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--secondary))] hover:text-[hsl(var(--foreground))] transition-all active:scale-95"
+          title="Go Back"
+        >
+          <ChevronLeft size={16} />
+        </Link>
+      )}
       <h1 className="text-sm font-semibold text-[hsl(var(--foreground))]">{title}</h1>
       <div className="ml-auto flex items-center gap-2">
         {children}

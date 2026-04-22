@@ -1,11 +1,13 @@
 "use client";
 import { cn } from "@/lib/utils";
 import React from "react";
+import { Slot } from "@radix-ui/react-slot";
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: "primary" | "secondary" | "ghost" | "danger" | "outline";
   size?: "sm" | "md" | "lg" | "icon";
   loading?: boolean;
+  asChild?: boolean;
   children: React.ReactNode;
 }
 
@@ -13,13 +15,16 @@ export function Button({
   variant = "secondary",
   size = "md",
   loading = false,
+  asChild = false,
   children,
   className,
   disabled,
   ...props
 }: ButtonProps) {
+  const Comp = asChild ? Slot : "button";
+
   const base =
-    "inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(var(--background))] disabled:pointer-events-none disabled:opacity-50 select-none";
+    "inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary))] focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(var(--background))] disabled:pointer-events-none disabled:opacity-50 select-none cursor-pointer";
 
   const variants = {
     primary:
@@ -42,24 +47,30 @@ export function Button({
   };
 
   return (
-    <button
+    <Comp
       className={cn(base, variants[variant], sizes[size], className)}
       disabled={disabled || loading}
       {...props}
     >
-      {loading && (
-        <svg
-          className="h-3.5 w-3.5 animate-spin"
-          xmlns="http://www.w3.org/2000/svg"
-          fill="none"
-          viewBox="0 0 24 24"
-        >
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
+      {asChild ? (
+        children
+      ) : (
+        <>
+          {loading && (
+            <svg
+              className="h-3.5 w-3.5 animate-spin"
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          )}
+          {children}
+        </>
       )}
-      {children}
-    </button>
+    </Comp>
   );
 }
 

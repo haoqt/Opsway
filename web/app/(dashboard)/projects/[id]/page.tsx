@@ -57,7 +57,7 @@ export default function ProjectDetailPage() {
 
   return (
     <>
-      <Topbar title={project.name}>
+      <Topbar title={project.name} backHref="/projects">
         <div className="flex items-center gap-4">
           <a
             href={`https://github.com/${project.repo_full_name}`}
@@ -99,7 +99,7 @@ export default function ProjectDetailPage() {
           {activeTab === "pipeline" && (
             <>
               {/* Project info */}
-              <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-3 flex-wrap mb-4">
                 <OdooVersionBadge version={project.odoo_version} />
                 <span className="text-xs text-[hsl(var(--muted-foreground))]">
                   {project.branch_count} branches · Created {formatTimeAgo(project.created_at)}
@@ -107,9 +107,10 @@ export default function ProjectDetailPage() {
               </div>
 
               {/* Branches pipeline — 3 columns */}
-              <div className="grid grid-cols-3 gap-4 items-start">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start h-full">
                 <BranchColumn
                   title="Development"
+                  description="Active features & sandboxes"
                   environment="development"
                   branches={devBranches}
                   projectId={id}
@@ -118,6 +119,7 @@ export default function ProjectDetailPage() {
                 />
                 <BranchColumn
                   title="Staging"
+                  description="Testing with production data"
                   environment="staging"
                   branches={stagingBranches}
                   projectId={id}
@@ -126,6 +128,7 @@ export default function ProjectDetailPage() {
                 />
                 <BranchColumn
                   title="Production"
+                  description="Live customer environments"
                   environment="production"
                   branches={prodBranches}
                   projectId={id}
@@ -310,14 +313,15 @@ function TabButton({ active, onClick, icon, label }: { active: boolean; onClick:
     <button
       onClick={onClick}
       className={cn(
-        "flex items-center gap-2 px-1 pb-4 text-xs font-semibold border-b-2 transition-all",
+        "flex items-center gap-2 px-1 pb-4 text-xs font-semibold border-b-2 transition-all relative",
         active 
-          ? "text-[hsl(var(--primary))] border-[hsl(var(--primary))]" 
+          ? "text-[hsl(var(--foreground))] border-[hsl(var(--primary))]" 
           : "text-[hsl(var(--muted-foreground))] border-transparent hover:text-[hsl(var(--foreground))]"
       )}
     >
       {icon}
       {label}
+      {active && <span className="absolute inset-x-0 bottom-[-1px] h-[2px] bg-[hsl(var(--primary))] glow-primary" />}
     </button>
   );
 }
@@ -325,44 +329,80 @@ function TabButton({ active, onClick, icon, label }: { active: boolean; onClick:
 // ── Branch Column ──────────────────────────────────────────────
 
 function BranchColumn({
-  title, environment, branches, projectId, projectSlug, onRefresh,
+  title, description, environment, branches, projectId, projectSlug, onRefresh,
 }: {
   title: string;
+  description: string;
   environment: "development" | "staging" | "production";
   branches: Branch[];
   projectId: string;
   projectSlug: string;
   onRefresh: () => void;
 }) {
-  const envColors = {
-    development: "border-violet-500/30 bg-violet-500/5",
-    staging:     "border-amber-500/30 bg-amber-500/5",
-    production:  "border-emerald-500/30 bg-emerald-500/5",
+  const envThemes = {
+    development: {
+      border: "border-violet-500/20",
+      bg: "bg-violet-500/5",
+      accent: "bg-violet-500",
+      text: "text-violet-400"
+    },
+    staging: {
+      border: "border-amber-500/20",
+      bg: "bg-amber-500/5",
+      accent: "bg-amber-500",
+      text: "text-amber-400"
+    },
+    production: {
+      border: "border-emerald-500/20",
+      bg: "bg-emerald-500/5",
+      accent: "bg-emerald-400",
+      text: "text-emerald-400"
+    },
   };
 
+  const theme = envThemes[environment];
+
   return (
-    <div className={`rounded-xl border-2 border-dashed p-4 space-y-3 ${envColors[environment]}`}>
-      <div className="flex items-center gap-2">
-        <EnvironmentBadge env={environment} />
-        <span className="text-[11px] text-[hsl(var(--muted-foreground))]">{branches.length}</span>
+    <div className={cn(
+      "flex flex-col h-full rounded-2xl border border-dashed transition-all duration-300",
+      theme.border,
+      theme.bg
+    )}>
+      {/* Column Header */}
+      <div className="p-4 border-b border-dashed border-inherit">
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2">
+            <span className={cn("h-1.5 w-1.5 rounded-full", theme.accent)} />
+            <h3 className="text-sm font-bold tracking-tight">{title}</h3>
+          </div>
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-white/5 text-[hsl(var(--muted-foreground))]">
+            {branches.length}
+          </span>
+        </div>
+        <p className="text-[10px] text-[hsl(var(--muted-foreground))] leading-tight">
+          {description}
+        </p>
       </div>
 
-      {branches.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-[hsl(var(--border))] py-8 text-center">
-          <GitBranch size={14} className="mx-auto text-[hsl(var(--muted-foreground))] mb-1.5" />
-          <p className="text-xs text-[hsl(var(--muted-foreground))]">No {title} branches</p>
-        </div>
-      ) : (
-        branches.map((branch) => (
-          <BranchCard
-            key={branch.id}
-            branch={branch}
-            projectId={projectId}
-            projectSlug={projectSlug}
-            onRefresh={onRefresh}
-          />
-        ))
-      )}
+      {/* Column Body */}
+      <div className="flex-1 p-3 space-y-3 overflow-y-auto max-h-[calc(100vh-320px)] scrollbar-hide">
+        {branches.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-10 opacity-40">
+            <Layers size={24} className="mb-2 stroke-1" />
+            <p className="text-[10px] font-medium">Empty Tier</p>
+          </div>
+        ) : (
+          branches.map((branch) => (
+            <BranchCard
+              key={branch.id}
+              branch={branch}
+              projectId={projectId}
+              projectSlug={projectSlug}
+              onRefresh={onRefresh}
+            />
+          ))
+        )}
+      </div>
     </div>
   );
 }
@@ -377,128 +417,156 @@ function BranchCard({
   projectSlug: string;
   onRefresh: () => void;
 }) {
-  const qc = useQueryClient();
+  const { mutate: promote, isPending: isPromoting } = useMutation({
+    mutationFn: (targetEnv: string) => branchesApi.promote(projectId, branch.id, targetEnv),
+    onSuccess: onRefresh,
+    onError: (err: any) => alert(err.response?.data?.detail || "Promotion failed"),
+  });
 
-  const { mutate: deployToProd, isPending: isDeploying } = useMutation({
-    mutationFn: async () => {
-      if (branch.environment !== "production") {
-        await branchesApi.promote(projectId, branch.id, "production");
-      }
-      return branchesApi.deploy(projectId, branch.id);
-    },
+  const { mutate: deploy, isPending: isDeploying } = useMutation({
+    mutationFn: () => branchesApi.deploy(projectId, branch.id),
     onSuccess: onRefresh,
   });
 
-  const { mutate: promote, isPending: isPromoting } = useMutation({
-    mutationFn: (targetEnv: string) => branchesApi.promote(projectId, branch.id, targetEnv),
-    onSuccess: () => {
-      onRefresh();
-      // Optionally show a toast/alert
-    },
-    onError: (err: any) => {
-      alert(err.response?.data?.detail || "Promotion failed");
-    },
-  });
-
   const isRunning = branch.container_status === "running";
-  const subdomain = `${branch.name.replace(/\//g, "-").replace(/_/g, "-")}--${projectSlug}`;
-  const instanceUrl = `http://${subdomain}.localhost`;
-
+  
   return (
-    <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-3 group hover:border-[hsl(var(--primary)/0.3)] transition-all">
-      {/* Branch name + status */}
-      <div className="flex items-start gap-2">
-        <GitBranch size={12} className="mt-0.5 shrink-0 text-[hsl(var(--muted-foreground))]" />
-        <div className="flex-1 min-w-0">
+    <div className="group relative rounded-xl border border-[hsl(var(--border))] bg-[var(--gradient-card)] p-4 hover:border-[hsl(var(--primary)/0.4)] hover:shadow-xl hover:shadow-[hsl(var(--primary)/0.05)] transition-all duration-300">
+      {/* Status Dot (Absolute) */}
+      <div className="absolute top-4 right-4">
+        {isRunning ? (
           <div className="flex items-center gap-1.5">
-            <span className="truncate text-xs font-semibold text-[hsl(var(--foreground))]">{branch.name}</span>
-            {isRunning ? (
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400 animate-pulse" />
-            ) : (
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-600" />
-            )}
+            <span className="text-[9px] font-medium text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity">Online</span>
+            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_hsl(var(--success))]" />
           </div>
-          {branch.last_commit_sha && (
-            <div className="mt-0.5 flex items-center gap-1 text-[10px] text-[hsl(var(--muted-foreground))]">
-              <GitCommit size={9} />
-              <span className="font-mono">{shortSha(branch.last_commit_sha)}</span>
-              <span className="truncate">{branch.last_commit_message?.slice(0, 30)}</span>
+        ) : (
+          <span className="h-2 w-2 rounded-full bg-zinc-700" />
+        )}
+      </div>
+
+      {/* Main Info */}
+      <div className="space-y-3">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <GitBranch size={14} className="text-[hsl(var(--primary))]" />
+            <span className="text-sm font-bold text-[hsl(var(--foreground))] truncate pr-12">
+              {branch.name}
+            </span>
+          </div>
+          
+          {branch.last_commit_sha ? (
+            <div className="flex items-start gap-2 text-[11px] text-[hsl(var(--muted-foreground))]">
+              <GitCommit size={12} className="mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <span className="font-mono text-[hsl(var(--foreground))] mr-1.5">{shortSha(branch.last_commit_sha)}</span>
+                <span className="truncate block italic">"{branch.last_commit_message}"</span>
+              </div>
             </div>
+          ) : (
+            <p className="text-[10px] text-[hsl(var(--muted-foreground))] italic">No commits yet</p>
           )}
         </div>
-      </div>
 
-      {/* Instance URL */}
-      {isRunning && branch.container_url && (
-        <a
-          href={branch.container_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-2 flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-[10px] font-medium text-emerald-400 hover:bg-emerald-500/20 transition-colors"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <ExternalLink size={9} />
-          Open Instance
-        </a>
-      )}
+        {/* Stats/Meta row */}
+        <div className="flex items-center gap-4 py-1">
+          <div className="flex flex-col">
+            <span className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider font-bold">Odoo</span>
+            <span className="text-[11px] font-medium">{branch.odoo_version || "17.0"}</span>
+          </div>
+          <div className="h-6 w-[1px] bg-[hsl(var(--border))]" />
+          <div className="flex flex-col">
+            <span className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider font-bold">Deployed</span>
+            <span className="text-[11px] font-medium">{branch.last_deployed_at ? formatTimeAgo(branch.last_deployed_at) : "Never"}</span>
+          </div>
+        </div>
 
-      {/* Actions */}
-      <div className="mt-2 flex items-center gap-1.5 border-t border-[hsl(var(--border))] pt-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 px-2 text-[10px] flex-1"
-          loading={isDeploying}
-          onClick={() => {
-            deployToProd();
-          }}
-        >
-          <Rocket size={9} /> Deploy to Prod
-        </Button>
-
-        <Link href={`/projects/${projectId}/branches/${branch.id}/builds`}>
-          <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]">
-            <Layers size={9} className="mr-1" /> Builds
-          </Button>
-        </Link>
-
-        <Link href={`/projects/${projectId}/branches/${branch.id}/backups`}>
-          <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]">
-            <DatabaseIcon size={9} className="mr-1" /> Backups
-          </Button>
-        </Link>
-
-        {isRunning && (
-          <Link href={`/projects/${projectId}/branches/${branch.id}/terminal`}>
-            <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]">
-              <Terminal size={9} className="mr-1" /> Terminal
-            </Button>
-          </Link>
-        )}
-
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {["development", "staging"].filter(env => env !== branch.environment).map(env => (
+        {/* Actions - Primary Row */}
+        <div className="flex items-center gap-2 pt-1">
+          {isRunning && branch.container_url ? (
             <Button
-              key={env}
-              variant="ghost"
+              asChild
+              variant="secondary"
               size="sm"
-              className="h-6 px-2 text-[10px] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.1)] transition-all"
-              loading={isPromoting}
-              onClick={() => {
-                promote(env);
-              }}
+              className="h-8 flex-1 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 border-none text-[11px] font-bold"
             >
-              <ChevronRight size={9} className="mr-0.5" /> {env === "development" ? "Dev" : "Staging"}
+              <a href={branch.container_url} target="_blank" rel="noopener noreferrer">
+                <ExternalLink size={12} className="mr-1.5" />
+                Live Preview
+              </a>
             </Button>
-          ))}
+          ) : (
+            <Button
+              variant="primary"
+              size="sm"
+              className="h-8 flex-1 text-[11px] font-bold"
+              loading={isDeploying}
+              onClick={() => deploy()}
+            >
+              <Rocket size={12} className="mr-1.5" />
+              Deploy Now
+            </Button>
+          )}
+
+          <div className="flex items-center gap-1">
+            <Link href={`/projects/${projectId}/branches/${branch.id}/terminal`}>
+               <Button variant="outline" size="sm" className="h-8 w-8 p-0" title="Terminal">
+                <Terminal size={13} />
+               </Button>
+            </Link>
+            <Link href={`/projects/${projectId}/branches/${branch.id}/backups`}>
+               <Button variant="outline" size="sm" className="h-8 w-8 p-0" title="Backups">
+                <Database size={13} />
+               </Button>
+            </Link>
+          </div>
+        </div>
+
+        {/* Quick Promotion */}
+        <div className="grid grid-cols-2 gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+           {branch.environment === "development" && (
+             <Button
+               variant="ghost"
+               size="sm"
+               className="h-7 text-[10px] gap-1 text-[hsl(var(--muted-foreground))] hover:text-amber-400 hover:bg-amber-400/10"
+               loading={isPromoting}
+               onClick={() => promote("staging")}
+             >
+               <ChevronRight size={10} /> To Staging
+             </Button>
+           )}
+           {(branch.environment === "development" || branch.environment === "staging") && (
+             <Button
+               variant="ghost"
+               size="sm"
+               className="h-7 text-[10px] gap-1 text-[hsl(var(--muted-foreground))] hover:text-emerald-400 hover:bg-emerald-400/10"
+               loading={isPromoting}
+               onClick={() => promote("production")}
+             >
+               <ChevronRight size={10} /> To Production
+             </Button>
+           )}
+           {branch.environment === "staging" && (
+             <Button
+               variant="ghost"
+               size="sm"
+               className="h-7 text-[10px] gap-1 text-[hsl(var(--muted-foreground))] hover:text-violet-400 hover:bg-violet-400/10"
+               loading={isPromoting}
+               onClick={() => promote("development")}
+             >
+               <ChevronRight size={10} /> Back to Dev
+             </Button>
+           )}
         </div>
       </div>
-
-      {branch.last_deployed_at && (
-        <p className="mt-1.5 text-[10px] text-[hsl(var(--muted-foreground))]">
-          Deployed {formatTimeAgo(branch.last_deployed_at)}
-        </p>
-      )}
+      
+      {/* Bottom Link */}
+      <Link 
+        href={`/projects/${projectId}/branches/${branch.id}/builds`}
+        className="mt-4 flex items-center justify-center gap-1.5 text-[10px] font-bold text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors border-t border-[hsl(var(--border))] pt-3"
+      >
+        <Layers size={10} />
+        VIEW BUILD HISTORY
+      </Link>
     </div>
   );
 }
@@ -506,11 +574,15 @@ function BranchCard({
 function LoadingSkeleton() {
   return (
     <>
-      <Topbar title="Loading..." />
-      <div className="p-6 space-y-4">
-        <div className="grid grid-cols-3 gap-4">
+      <Topbar title="Loading project..." />
+      <div className="p-8 h-full">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[70vh]">
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-60 rounded-xl skeleton" />
+            <div key={i} className="rounded-2xl border border-dashed border-[hsl(var(--border))] bg-white/5 p-4 space-y-4">
+              <Skeleton className="h-6 w-32" />
+              <Skeleton className="h-40 w-full" />
+              <Skeleton className="h-40 w-full" />
+            </div>
           ))}
         </div>
       </div>

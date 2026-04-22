@@ -99,7 +99,7 @@ export default function BuildDetailPage() {
   if (!build) {
     return (
       <>
-        <Topbar title="Build" />
+        <Topbar title="Build" backHref="/builds" />
         <div className="flex-1 flex items-center justify-center">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-[hsl(var(--primary))] border-t-transparent" />
         </div>
@@ -109,7 +109,10 @@ export default function BuildDetailPage() {
 
   return (
     <>
-      <Topbar title={`Build #${shortSha(build.id)}`}>
+      <Topbar 
+        title={`Build #${shortSha(build.id)}`} 
+        backHref={build ? `/projects/${build.branch.project_id}/branches/${build.branch_id}/builds` : "/builds"}
+      >
         <div className="flex items-center gap-3">
           <BuildStatusBadge status={build.status} size="md" />
           {isCancellable ? (

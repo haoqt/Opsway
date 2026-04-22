@@ -104,7 +104,7 @@ export default function BranchBackupsPage() {
 
   return (
     <div className="flex flex-col h-full bg-[hsl(var(--background))]">
-      <Topbar title="Backups">
+      <Topbar title="Backups" backHref={`/projects/${projectId}`}>
         <div className="flex items-center gap-2">
           <input
             type="file"

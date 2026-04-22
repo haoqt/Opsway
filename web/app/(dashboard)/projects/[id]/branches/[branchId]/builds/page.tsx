@@ -22,7 +22,7 @@ export default function BranchBuildsPage() {
 
   return (
     <>
-      <Topbar title="Build History" />
+      <Topbar title="Build History" backHref={`/projects/${projectId}`} />
       <div className="flex-1 overflow-y-auto p-6">
         {isLoading ? (
           <div className="space-y-3">
