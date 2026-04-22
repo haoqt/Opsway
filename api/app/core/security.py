@@ -11,7 +11,7 @@ from fastapi.security import OAuth2PasswordBearer
 from app.core.config import get_settings
 
 settings = get_settings()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)
 
 
 def verify_password(plain: str, hashed: str) -> bool:

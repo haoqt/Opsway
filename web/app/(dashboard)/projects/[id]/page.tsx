@@ -456,15 +456,11 @@ function BranchCard({
         </Link>
 
         {isRunning && (
-          <a
-            href={`http://terminal.localhost`}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-              <Terminal size={9} />
+          <Link href={`/projects/${projectId}/branches/${branch.id}/terminal`}>
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]">
+              <Terminal size={9} className="mr-1" /> Terminal
             </Button>
-          </a>
+          </Link>
         )}
 
         <div className="flex items-center gap-1.5 flex-wrap">

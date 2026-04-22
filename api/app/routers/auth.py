@@ -25,9 +25,14 @@ GITHUB_USER_URL = "https://api.github.com/user"
 # ── Current user dependency ────────────────────────────────────
 
 async def get_current_user(
+    request: Request,
     token: str = Depends(__import__("app.core.security", fromlist=["oauth2_scheme"]).oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
+    if not token:
+        token = request.query_params.get("token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     payload = decode_token(token)
     user_id = payload.get("sub")
     if not user_id:

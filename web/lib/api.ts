@@ -78,7 +78,10 @@ export const buildsApi = {
   get: (buildId: string) => api.get(`/builds/${buildId}`),
   cancel: (buildId: string) => api.post(`/builds/${buildId}/cancel`),
   retry: (buildId: string) => api.post(`/builds/${buildId}/retry`),
-  logsUrl: (buildId: string) => `${API_URL}/api/builds/${buildId}/logs`,
+  logsUrl: (buildId: string) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("opsway_token") : "";
+    return `${API_URL}/api/builds/${buildId}/logs${token ? `?token=${token}` : ""}`;
+  },
 };
 
 export const monitoringApi = {
