@@ -36,6 +36,10 @@ services:
       - --providers.file.watch=true
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
+      # Let's Encrypt auto TLS for custom domains
+      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@opsway.io}
+      - --certificatesresolvers.letsencrypt.acme.storage=/certs/acme.json
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
       - --log.level=INFO
       - --accesslog=true
     ports:

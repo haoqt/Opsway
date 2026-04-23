@@ -40,6 +40,7 @@ class OdooContainerConfig:
     mailhog_smtp_port: int = 1025
     workers: int = 2
     init_db: bool = False      # if True, runs with -i base --stop-after-init
+    custom_domain: str | None = None  # e.g. "erp.mycompany.com"
 
 
 class DockerManager:
@@ -102,13 +103,27 @@ class DockerManager:
         
         return None
 
-    def _traefik_host_rule(self, project_slug: str, branch_name: str) -> str:
+    def _traefik_host_rule(self, project_slug: str, branch_name: str,
+                           custom_domain: str | None = None, environment: str = "development") -> str:
         safe_branch = branch_name.replace("/", "-").replace("_", "-").lower()
         subdomain = f"{safe_branch}--{project_slug}"
-        return f"Host(`{subdomain}.{settings.traefik_domain}`)"
+        default_rule = f"Host(`{subdomain}.{settings.traefik_domain}`)"
+        
+        if custom_domain:
+            custom_subdomain = f"Host(`{safe_branch}.{custom_domain}`)"
+            if environment == "production" and safe_branch in ("main", "master", "production"):
+                return f"({default_rule} || {custom_subdomain} || Host(`{custom_domain}`))"
+            return f"({default_rule} || {custom_subdomain})"
+        return default_rule
 
-    def _public_url(self, project_slug: str, branch_name: str) -> str:
+    def _public_url(self, project_slug: str, branch_name: str,
+                    custom_domain: str | None = None, environment: str = "development") -> str:
         safe_branch = branch_name.replace("/", "-").replace("_", "-").lower()
+        if custom_domain:
+            if environment == "production" and safe_branch in ("main", "master", "production"):
+                return f"https://{custom_domain}"
+            return f"https://{safe_branch}.{custom_domain}"
+            
         subdomain = f"{safe_branch}--{project_slug}"
         return f"http://{subdomain}.{settings.traefik_domain}"
 
@@ -186,7 +201,7 @@ class DockerManager:
         if host_port:
             url = f"http://localhost:{host_port}"
         else:
-            url = self._public_url(config.project_slug, config.branch_name)
+            url = self._public_url(config.project_slug, config.branch_name, config.custom_domain, config.environment)
 
         # Stop existing if any
         self.stop_container(name, remove=True)
@@ -210,8 +225,9 @@ class DockerManager:
         labels = {
             "traefik.enable": "true",
             f"traefik.http.routers.{name}.rule": self._traefik_host_rule(
-                config.project_slug, config.branch_name
+                config.project_slug, config.branch_name, config.custom_domain, config.environment
             ),
+            f"traefik.http.routers.{name}.entrypoints": "web",
             f"traefik.http.routers.{name}.service": name,
             f"traefik.http.services.{name}.loadbalancer.server.port": "8069",
             "opsway.project": config.project_slug,
@@ -219,6 +235,21 @@ class DockerManager:
             "opsway.environment": config.environment,
             "opsway.managed": "true",
         }
+
+        # Add TLS router for custom domain (Let's Encrypt auto-provisioning)
+        if config.custom_domain:
+            safe_branch = config.branch_name.replace("/", "-").replace("_", "-").lower()
+            hosts = [f"`{safe_branch}.{config.custom_domain}`"]
+            if config.environment == "production" and safe_branch in ("main", "master", "production"):
+                hosts.append(f"`{config.custom_domain}`")
+            
+            host_rule = " || ".join([f"Host({h})" for h in hosts])
+            
+            labels[f"traefik.http.routers.{name}-tls.rule"] = host_rule
+            labels[f"traefik.http.routers.{name}-tls.entrypoints"] = "websecure"
+            labels[f"traefik.http.routers.{name}-tls.tls.certresolver"] = "letsencrypt"
+            labels[f"traefik.http.routers.{name}-tls.service"] = name
+            labels["opsway.custom_domain"] = config.custom_domain
 
         # Volume mounts
         volumes = {}

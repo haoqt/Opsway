@@ -122,6 +122,17 @@ class Project(Base):
     build_limit_staging: Mapped[int] = mapped_column(Integer, default=2)
     build_limit_production: Mapped[int] = mapped_column(Integer, default=1)
 
+    # Domain settings (Phase 2)
+    custom_domain: Mapped[str | None] = mapped_column(String(255))  # e.g. "mycompany.com"
+    custom_domain_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    custom_domain_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Backup policy (Phase 2)
+    backup_schedule: Mapped[str] = mapped_column(String(50), default="daily")  # daily/weekly/none
+    backup_retention_daily: Mapped[int] = mapped_column(Integer, default=7)
+    backup_retention_weekly: Mapped[int] = mapped_column(Integer, default=4)
+    backup_retention_monthly: Mapped[int] = mapped_column(Integer, default=3)
+
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
@@ -188,6 +199,18 @@ class Branch(Base):
     # Environment variables (JSON)
     env_vars: Mapped[dict | None] = mapped_column(JSON, default=dict)
 
+
+    # Neutralization tracking (Phase 2)
+    is_neutralized: Mapped[bool] = mapped_column(Boolean, default=False)
+    neutralized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cloned_from_branch_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("branches.id", ondelete="SET NULL"), nullable=True
+    )
+
+    # Active Operations (Cloning, Building, Neutralizing, etc)
+    current_task: Mapped[str | None] = mapped_column(String(50))
+    current_task_status: Mapped[str | None] = mapped_column(String(50))  # pending, running, failed
+
     # Last deploy
     last_commit_sha: Mapped[str | None] = mapped_column(String(40))
     last_commit_message: Mapped[str | None] = mapped_column(Text)
@@ -200,6 +223,9 @@ class Branch(Base):
     # Relationships
     project: Mapped["Project"] = relationship(back_populates="branches")
     builds: Mapped[list["Build"]] = relationship(back_populates="branch", cascade="all, delete-orphan")
+    cloned_from_branch: Mapped["Branch | None"] = relationship(
+        "Branch", remote_side="Branch.id", foreign_keys=[cloned_from_branch_id]
+    )
 
     __table_args__ = (
         UniqueConstraint("project_id", "name", name="uq_branch_project"),

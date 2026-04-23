@@ -76,6 +76,11 @@ class ProjectUpdate(BaseModel):
     build_limit_dev: int | None = None
     build_limit_staging: int | None = None
     build_limit_production: int | None = None
+    custom_domain: str | None = None
+    backup_schedule: str | None = None
+    backup_retention_daily: int | None = None
+    backup_retention_weekly: int | None = None
+    backup_retention_monthly: int | None = None
 
 
 class ProjectOut(BaseModel):
@@ -97,6 +102,12 @@ class ProjectOut(BaseModel):
     build_limit_dev: int
     build_limit_staging: int
     build_limit_production: int
+    custom_domain: str | None = None
+    custom_domain_verified: bool = False
+    backup_schedule: str = "daily"
+    backup_retention_daily: int = 7
+    backup_retention_weekly: int = 4
+    backup_retention_monthly: int = 3
 
     model_config = {"from_attributes": True}
 
@@ -128,7 +139,6 @@ class BranchUpdate(BaseModel):
     run_tests: bool | None = None
     env_vars: dict[str, str] | None = None
 
-
 class BranchOut(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
@@ -141,6 +151,11 @@ class BranchOut(BaseModel):
     is_active: bool
     auto_deploy: bool
     run_tests: bool
+    is_neutralized: bool = False
+    neutralized_at: datetime | None = None
+    cloned_from_branch_id: uuid.UUID | None = None
+    current_task: str | None = None
+    current_task_status: str | None = None
     last_commit_sha: str | None
     last_commit_message: str | None
     last_commit_author: str | None
@@ -219,3 +234,14 @@ class GlobalStats(BaseModel):
     deployments_today: int
     containers: int
     projects: int
+
+
+class SetDomainRequest(BaseModel):
+    domain: str
+
+
+class DomainVerification(BaseModel):
+    domain: str
+    verified: bool
+    cname_target: str  # e.g. "branch--project.localhost"
+    message: str | None = None

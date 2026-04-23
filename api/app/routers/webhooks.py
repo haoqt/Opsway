@@ -116,6 +116,11 @@ async def _handle_push(payload: dict, project: Project, db: AsyncSession):
         status=BuildStatus.PENDING,
     )
     db.add(build)
+    
+    # Update branch state
+    branch.current_task = "building"
+    branch.current_task_status = "pending"
+    
     await db.flush()
 
     build_id = str(build.id)

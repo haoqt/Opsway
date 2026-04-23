@@ -1,4 +1,5 @@
 import axios from "axios";
+import { GlobalStats, DomainVerification } from "@/lib/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -86,6 +87,10 @@ export const branchesApi = {
       headers: { "Content-Type": "multipart/form-data" },
     });
   },
+  cloneFrom: (projectId: string, branchId: string, sourceBranchId: string) =>
+    api.post(`/projects/${projectId}/branches/${branchId}/clone-from/${sourceBranchId}`),
+  neutralize: (projectId: string, branchId: string) =>
+    api.post(`/projects/${projectId}/branches/${branchId}/neutralize`),
 };
 
 export const buildsApi = {
@@ -105,4 +110,15 @@ export const monitoringApi = {
 
 export const statsApi = {
   get: () => api.get("/stats").then((r) => r.data as GlobalStats),
+};
+
+export const domainsApi = {
+  set: (projectId: string, domain: string) =>
+    api.post(`/projects/${projectId}/domain`, { domain }),
+  verify: (projectId: string) =>
+    api.post<DomainVerification>(`/projects/${projectId}/domain/verify`),
+  remove: (projectId: string) =>
+    api.delete(`/projects/${projectId}/domain`),
+  get: (projectId: string) =>
+    api.get<DomainVerification>(`/projects/${projectId}/domain`),
 };

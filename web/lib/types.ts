@@ -31,6 +31,15 @@ export interface Project {
   updated_at: string;
   branch_count: number;
   active_builds: number;
+  build_limit_dev: number;
+  build_limit_staging: number;
+  build_limit_production: number;
+  custom_domain: string | null;
+  custom_domain_verified: boolean;
+  backup_schedule: string;
+  backup_retention_daily: number;
+  backup_retention_weekly: number;
+  backup_retention_monthly: number;
 }
 
 export interface ProjectDetail extends Project {
@@ -53,6 +62,11 @@ export interface Branch {
   is_active: boolean;
   auto_deploy: boolean;
   run_tests: boolean;
+  is_neutralized: boolean;
+  neutralized_at: string | null;
+  cloned_from_branch_id: string | null;
+  current_task: string | null;
+  current_task_status: string | null;
   last_commit_sha: string | null;
   last_commit_message: string | null;
   last_commit_author: string | null;
@@ -89,4 +103,11 @@ export interface GlobalStats {
   deployments_today: number;
   containers: number;
   projects: number;
+}
+
+export interface DomainVerification {
+  domain: string;
+  verified: boolean;
+  cname_target: string;
+  message: string | null;
 }

@@ -148,6 +148,11 @@ async def manual_deploy(
         status=BuildStatus.PENDING,
     )
     db.add(build)
+    
+    # Update branch state
+    branch.current_task = "building"
+    branch.current_task_status = "pending"
+    
     await db.flush()
 
     # Dispatch to Celery
@@ -218,3 +223,82 @@ async def switch_branch_environment(
     branch.environment = new_env
     await db.commit()
     return branch
+
+
+@router.post("/{branch_id}/clone-from/{source_branch_id}", response_model=MessageResponse)
+async def clone_from_branch(
+    project_id: str,
+    branch_id: str,
+    source_branch_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Clone database and filestore from source branch to target branch.
+    
+    This is equivalent to Odoo.sh 'Clone Production → Staging':
+    - pg_dump + pg_restore the database
+    - Clone the filestore
+    - Auto-neutralize if target is non-production (disable crons, mask mail servers)
+    """
+    project = await get_project_or_404(project_id, db, current_user)
+    target_branch = await get_branch_or_404(branch_id, project.id, db)
+    source_branch = await get_branch_or_404(source_branch_id, project.id, db)
+
+    if not source_branch.db_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Source branch has no database to clone from"
+        )
+
+    from app.worker.tasks.db_clone import clone_database
+    
+    # Update branch state
+    target_branch.current_task = "cloning"
+    target_branch.current_task_status = "pending"
+    
+    clone_database.delay(str(source_branch.id), str(target_branch.id))
+    await db.flush()
+
+    return {
+        "message": f"Database clone started: {source_branch.name} → {target_branch.name}. "
+                   f"Auto-neutralization will run if target is non-production."
+    }
+
+
+@router.post("/{branch_id}/neutralize", response_model=MessageResponse)
+async def neutralize_branch(
+    project_id: str,
+    branch_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Manually trigger database neutralization for a branch.
+    
+    Disables cron jobs, redirects mail to MailHog, clears OAuth tokens.
+    Typically auto-triggered after cloning, but can be run manually.
+    """
+    project = await get_project_or_404(project_id, db, current_user)
+    branch = await get_branch_or_404(branch_id, project.id, db)
+
+    if not branch.db_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Branch has no database to neutralize"
+        )
+
+    if branch.environment == EnvironmentType.PRODUCTION:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot neutralize a production branch"
+        )
+
+    from app.worker.tasks.neutralize import neutralize_database
+    
+    # Update branch state
+    branch.current_task = "neutralizing"
+    branch.current_task_status = "pending"
+    
+    neutralize_database.delay(str(branch.id))
+    await db.flush()
+
+    return {"message": f"Neutralization started for branch '{branch.name}'"}

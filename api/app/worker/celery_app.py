@@ -16,6 +16,8 @@ celery_app = Celery(
         "app.worker.tasks.backup",
         "app.worker.tasks.restore",
         "app.worker.tasks.repo",
+        "app.worker.tasks.db_clone",
+        "app.worker.tasks.neutralize",
     ],
 )
 

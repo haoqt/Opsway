@@ -2,8 +2,8 @@
 import React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
-import { projectsApi, branchesApi } from "@/lib/api";
-import { ProjectDetail, Branch } from "@/lib/types";
+import { projectsApi, branchesApi, domainsApi } from "@/lib/api";
+import { ProjectDetail, Branch, DomainVerification } from "@/lib/types";
 import { Topbar } from "@/components/layout/sidebar";
 import { Card, Button, Skeleton, EmptyState } from "@/components/ui/primitives";
 import { BuildStatusBadge, EnvironmentBadge, OdooVersionBadge } from "@/components/ui/badges";
@@ -11,7 +11,8 @@ import { formatTimeAgo, formatDuration, shortSha } from "@/lib/utils";
 import {
   GitBranch, ExternalLink, Rocket, RefreshCw,
   GitCommit, Terminal, Layers, Play, Copy,
-  CheckCircle2, AlertCircle, ChevronRight, Database, Database as DatabaseIcon
+  CheckCircle2, AlertCircle, ChevronRight, Database, Database as DatabaseIcon,
+  Globe, Shield, ShieldCheck, Mail, Download, Trash2, Link2, Loader2
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -25,7 +26,7 @@ export default function ProjectDetailPage() {
   const { data: project, isLoading, refetch } = useQuery({
     queryKey: ["project", id],
     queryFn: () => projectsApi.get(id).then((r) => r.data as ProjectDetail),
-    refetchInterval: 10_000,
+    refetchInterval: 3000,
   });
 
   const { mutate: testConnection, isPending: isTesting } = useMutation({
@@ -113,6 +114,7 @@ export default function ProjectDetailPage() {
                   description="Active features & sandboxes"
                   environment="development"
                   branches={devBranches}
+                  allBranches={project.branches ?? []}
                   projectId={id}
                   projectSlug={project.slug}
                   onRefresh={() => qc.invalidateQueries({ queryKey: ["project", id] })}
@@ -122,6 +124,7 @@ export default function ProjectDetailPage() {
                   description="Testing with production data"
                   environment="staging"
                   branches={stagingBranches}
+                  allBranches={project.branches ?? []}
                   projectId={id}
                   projectSlug={project.slug}
                   onRefresh={() => qc.invalidateQueries({ queryKey: ["project", id] })}
@@ -131,6 +134,7 @@ export default function ProjectDetailPage() {
                   description="Live customer environments"
                   environment="production"
                   branches={prodBranches}
+                  allBranches={project.branches ?? []}
                   projectId={id}
                   projectSlug={project.slug}
                   onRefresh={() => qc.invalidateQueries({ queryKey: ["project", id] })}
@@ -143,7 +147,7 @@ export default function ProjectDetailPage() {
             <div className="space-y-4">
               <h3 className="text-xs font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-4">Branch Activity & History</h3>
               {project.branches?.length === 0 ? (
-                <EmptyState title="No activity yet" description="History will appear here once branches are created." />
+                <EmptyState icon={GitCommit} title="No activity yet" description="History will appear here once branches are created." />
               ) : (
                 <div className="space-y-3">
                   {project.branches?.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()).map(branch => (
@@ -300,6 +304,9 @@ export default function ProjectDetailPage() {
                   </div>
                 </div>
               </Card>
+
+              {/* Custom Domains */}
+              <CustomDomainsSettings project={project} projectId={id} />
             </div>
           )}
         </div>
@@ -329,12 +336,13 @@ function TabButton({ active, onClick, icon, label }: { active: boolean; onClick:
 // ── Branch Column ──────────────────────────────────────────────
 
 function BranchColumn({
-  title, description, environment, branches, projectId, projectSlug, onRefresh,
+  title, description, environment, branches, allBranches, projectId, projectSlug, onRefresh,
 }: {
   title: string;
   description: string;
   environment: "development" | "staging" | "production";
   branches: Branch[];
+  allBranches: Branch[];
   projectId: string;
   projectSlug: string;
   onRefresh: () => void;
@@ -398,6 +406,7 @@ function BranchColumn({
               branch={branch}
               projectId={projectId}
               projectSlug={projectSlug}
+              allBranches={allBranches}
               onRefresh={onRefresh}
             />
           ))
@@ -410,13 +419,17 @@ function BranchColumn({
 // ── Branch Card ────────────────────────────────────────────────
 
 function BranchCard({
-  branch, projectId, projectSlug, onRefresh,
+  branch, projectId, projectSlug, allBranches, onRefresh,
 }: {
   branch: Branch;
   projectId: string;
   projectSlug: string;
+  allBranches: Branch[];
   onRefresh: () => void;
 }) {
+  const [showCloneMenu, setShowCloneMenu] = React.useState(false);
+  const [cloneSourceId, setCloneSourceId] = React.useState("");
+
   const { mutate: promote, isPending: isPromoting } = useMutation({
     mutationFn: (targetEnv: string) => branchesApi.promote(projectId, branch.id, targetEnv),
     onSuccess: onRefresh,
@@ -429,18 +442,30 @@ function BranchCard({
   });
 
   const isRunning = branch.container_status === "running";
+  const isBusy = branch.current_task_status === "running" || branch.current_task_status === "pending";
+  const isFailed = branch.current_task_status === "failed";
   
   return (
     <div className="group relative rounded-xl border border-[hsl(var(--border))] bg-[var(--gradient-card)] p-4 hover:border-[hsl(var(--primary)/0.4)] hover:shadow-xl hover:shadow-[hsl(var(--primary)/0.05)] transition-all duration-300">
       {/* Status Dot (Absolute) */}
-      <div className="absolute top-4 right-4">
-        {isRunning ? (
+      <div className="absolute top-4 right-4 flex flex-col items-end gap-2">
+        {isBusy ? (
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20">
+            <Loader2 size={10} className="animate-spin text-blue-400" />
+            <span className="text-[9px] font-semibold text-blue-400 uppercase tracking-wider capitalize">{branch.current_task}...</span>
+          </div>
+        ) : isFailed ? (
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/20" title="Task failed">
+            <AlertCircle size={10} className="text-red-400" />
+            <span className="text-[9px] font-semibold text-red-400 uppercase tracking-wider">Failed</span>
+          </div>
+        ) : isRunning ? (
           <div className="flex items-center gap-1.5">
             <span className="text-[9px] font-medium text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity">Online</span>
             <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_hsl(var(--success))]" />
           </div>
         ) : (
-          <span className="h-2 w-2 rounded-full bg-zinc-700" />
+          <span className="h-2 w-2 rounded-full bg-zinc-700" title="Offline" />
         )}
       </div>
 
@@ -487,7 +512,7 @@ function BranchCard({
               asChild
               variant="secondary"
               size="sm"
-              className="h-8 flex-1 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 border-none text-[11px] font-bold"
+              className={cn("h-8 flex-1 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 border-none text-[11px] font-bold", isBusy && "opacity-50 pointer-events-none")}
             >
               <a href={branch.container_url} target="_blank" rel="noopener noreferrer">
                 <ExternalLink size={12} className="mr-1.5" />
@@ -499,7 +524,8 @@ function BranchCard({
               variant="primary"
               size="sm"
               className="h-8 flex-1 text-[11px] font-bold"
-              loading={isDeploying}
+              loading={isDeploying || isBusy}
+              disabled={isBusy}
               onClick={() => deploy()}
             >
               <Rocket size={12} className="mr-1.5" />
@@ -508,6 +534,16 @@ function BranchCard({
           )}
 
           <div className="flex items-center gap-1">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              disabled={isBusy}
+              className={cn("h-8 px-2 flex items-center gap-1.5 transition-colors", showCloneMenu && "bg-blue-500/10 border-blue-500/30 text-blue-400")} 
+              title="Clone From"
+              onClick={() => setShowCloneMenu(!showCloneMenu)}
+            >
+              <Copy size={13} />
+            </Button>
             <Link href={`/projects/${projectId}/branches/${branch.id}/terminal`}>
                <Button variant="outline" size="sm" className="h-8 w-8 p-0" title="Terminal">
                 <Terminal size={13} />
@@ -521,6 +557,43 @@ function BranchCard({
           </div>
         </div>
 
+        {/* Clone Menu */}
+        {showCloneMenu && (
+          <div className="mt-2 p-2 rounded bg-black/20 border border-[hsl(var(--border))] space-y-2 animate-in fade-in slide-in-from-top-2">
+            <p className="text-[10px] text-[hsl(var(--muted-foreground))]">Select a source branch to clone data into <strong>{branch.name}</strong>. This will overwrite existing data.</p>
+            <div className="flex gap-2">
+              <select
+                className="flex-1 bg-black/40 border border-[hsl(var(--border))] rounded px-2 py-1 text-[11px] text-[hsl(var(--foreground))] focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
+                value={cloneSourceId}
+                onChange={(e) => setCloneSourceId(e.target.value)}
+              >
+                <option value="" disabled>Select source branch...</option>
+                {allBranches.filter(b => b.id !== branch.id).map(b => (
+                  <option key={b.id} value={b.id}>{b.name} ({b.environment})</option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                className="h-7 text-[10px] px-3 bg-blue-500 hover:bg-blue-600 text-white"
+                disabled={!cloneSourceId}
+                onClick={() => {
+                  if (confirm(`Are you sure you want to OVERWRITE ${branch.name} with data from the selected branch?`)) {
+                    branchesApi.cloneFrom(projectId, branch.id, cloneSourceId)
+                      .then(() => {
+                        setShowCloneMenu(false);
+                        onRefresh();
+                        alert("Clone task has been queued.");
+                      })
+                      .catch((err: any) => alert(err.response?.data?.detail || "Cloning failed"));
+                  }
+                }}
+              >
+                Clone
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Quick Promotion */}
         <div className="grid grid-cols-2 gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
            {branch.environment === "development" && (
@@ -529,6 +602,7 @@ function BranchCard({
                size="sm"
                className="h-7 text-[10px] gap-1 text-[hsl(var(--muted-foreground))] hover:text-amber-400 hover:bg-amber-400/10"
                loading={isPromoting}
+               disabled={isBusy}
                onClick={() => promote("staging")}
              >
                <ChevronRight size={10} /> To Staging
@@ -540,6 +614,7 @@ function BranchCard({
                size="sm"
                className="h-7 text-[10px] gap-1 text-[hsl(var(--muted-foreground))] hover:text-emerald-400 hover:bg-emerald-400/10"
                loading={isPromoting}
+               disabled={isBusy}
                onClick={() => promote("production")}
              >
                <ChevronRight size={10} /> To Production
@@ -551,12 +626,26 @@ function BranchCard({
                size="sm"
                className="h-7 text-[10px] gap-1 text-[hsl(var(--muted-foreground))] hover:text-violet-400 hover:bg-violet-400/10"
                loading={isPromoting}
+               disabled={isBusy}
                onClick={() => promote("development")}
              >
                <ChevronRight size={10} /> Back to Dev
              </Button>
            )}
         </div>
+
+        {/* Neutralization badge */}
+        {branch.is_neutralized && (
+          <div className="flex items-center gap-1.5 mt-2 px-2 py-1 rounded-md bg-amber-500/10 border border-amber-500/20">
+            <ShieldCheck size={11} className="text-amber-400" />
+            <span className="text-[9px] font-semibold text-amber-400 uppercase tracking-wider">Neutralized</span>
+            {branch.neutralized_at && (
+              <span className="text-[9px] text-[hsl(var(--muted-foreground))] ml-auto">{formatTimeAgo(branch.neutralized_at)}</span>
+            )}
+          </div>
+        )}
+
+
       </div>
       
       {/* Bottom Link */}
@@ -589,3 +678,210 @@ function LoadingSkeleton() {
     </>
   );
 }
+
+
+// ── Custom Domains Settings ────────────────────────────────────
+
+function CustomDomainsSettings({ project, projectId }: { project: ProjectDetail; projectId: string }) {
+  const qc = useQueryClient();
+  const [domainInput, setDomainInput] = React.useState(project.custom_domain || "");
+  const [isEditing, setIsEditing] = React.useState(!project.custom_domain);
+
+  const cnameTarget = `${project.slug}.${process.env.NEXT_PUBLIC_TRAEFIK_DOMAIN || "localhost"}`;
+
+  const { mutate: setDomain, isPending: isSetting } = useMutation({
+    mutationFn: () => domainsApi.set(projectId, domainInput.trim()),
+    onSuccess: () => { 
+      qc.invalidateQueries({ queryKey: ["project", projectId] });
+      setIsEditing(false); 
+    },
+    onError: (err: any) => alert(err.response?.data?.detail || "Failed to set domain"),
+  });
+
+  const { mutate: verifyDomain, isPending: isVerifying } = useMutation({
+    mutationFn: () => domainsApi.verify(projectId),
+    onSuccess: (res) => {
+      if (res.data.verified) {
+        qc.invalidateQueries({ queryKey: ["project", projectId] });
+      } else {
+        alert(`Verification failed: ${res.data.message}`);
+      }
+    },
+    onError: (err: any) => alert(err.response?.data?.detail || "Verification failed"),
+  });
+
+  const { mutate: removeDomain, isPending: isRemoving } = useMutation({
+    mutationFn: () => domainsApi.remove(projectId),
+    onSuccess: () => { 
+      qc.invalidateQueries({ queryKey: ["project", projectId] });
+      setDomainInput(""); 
+      setIsEditing(true); 
+    },
+    onError: (err: any) => alert(err.response?.data?.detail || "Failed to remove domain"),
+  });
+
+  return (
+    <Card className="p-4 space-y-4 shadow-sm border-[hsl(var(--border))]">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] flex items-center gap-2">
+          <Globe size={12} />
+          Project Custom Domain
+        </h3>
+        <span className="text-[9px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 font-bold">
+          Wildcard & TLS Auto
+        </span>
+      </div>
+
+      <p className="text-[10px] text-[hsl(var(--muted-foreground))] leading-relaxed">
+        Set a root domain for your project. Branches will automatically receive subdomains (e.g., <code>branch-name.yourdomain.com</code>). 
+        Production branches will also be accessible at the root domain.
+      </p>
+
+      <div className="rounded-lg bg-[hsl(var(--secondary)/0.3)] p-3 border border-[hsl(var(--border))] space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-bold uppercase text-[hsl(var(--muted-foreground))]">Current Domain</span>
+          {project.custom_domain && (
+            <div className="flex items-center gap-1">
+              {project.custom_domain_verified ? (
+                <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-400">
+                  <CheckCircle2 size={10} /> Verified
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-[9px] font-bold text-amber-400">
+                  <AlertCircle size={10} /> Pending Verification
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {project.custom_domain && !isEditing ? (
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <Globe size={12} className="text-blue-400 shrink-0" />
+              <code className="text-[11px] font-mono bg-black/20 px-2 py-1 rounded truncate flex-1">
+                {project.custom_domain}
+              </code>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              {!project.custom_domain_verified && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-[10px] text-blue-400 border-blue-500/30 hover:bg-blue-500/10"
+                  loading={isVerifying}
+                  onClick={() => verifyDomain()}
+                >
+                  Verify
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 text-[hsl(var(--muted-foreground))] hover:text-red-400"
+                loading={isRemoving}
+                onClick={() => {
+                  if (confirm(`Remove domain "${project.custom_domain}"? This will disable custom subdomains for all branches.`)) {
+                    removeDomain();
+                  }
+                }}
+              >
+                <Trash2 size={12} />
+              </Button>
+              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setIsEditing(true)}>
+                <RefreshCw size={12} />
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="e.g. mycompany.com"
+              className="flex-1 bg-black/20 border border-[hsl(var(--border))] rounded px-3 py-1 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
+              value={domainInput}
+              onChange={(e) => setDomainInput(e.target.value)}
+            />
+            <Button
+              size="sm"
+              className="h-8 text-[11px] font-bold px-4"
+              loading={isSetting}
+              onClick={() => setDomain()}
+            >
+              Set Domain
+            </Button>
+            {project.custom_domain && (
+               <Button variant="ghost" size="sm" className="h-8" onClick={() => { setIsEditing(false); setDomainInput(project.custom_domain || ""); }}>
+                 Cancel
+               </Button>
+            )}
+          </div>
+        )}
+
+        {project.custom_domain && (
+          <div className="pt-2 space-y-1">
+            <p className="text-[9px] font-bold text-[hsl(var(--muted-foreground))] uppercase tracking-tight">Example Routing:</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-black/10 p-1.5 rounded border border-[hsl(var(--border))]">
+                <p className="text-[8px] text-[hsl(var(--muted-foreground))] uppercase">Main Branch</p>
+                <p className="text-[10px] font-mono text-emerald-400 truncate">https://{project.custom_domain}</p>
+              </div>
+              <div className="bg-black/10 p-1.5 rounded border border-[hsl(var(--border))]">
+                <p className="text-[8px] text-[hsl(var(--muted-foreground))] uppercase">Staging Branch</p>
+                <p className="text-[10px] font-mono text-amber-400 truncate">https://staging.{project.custom_domain}</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* DNS Instructions */}
+      <div className="mt-4 pt-4 border-t border-[hsl(var(--border))]">
+        <h4 className="text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-2 flex items-center gap-1.5">
+          <Link2 size={10} />
+          DNS Setup Instructions
+        </h4>
+        <div className="rounded-lg bg-[hsl(var(--secondary)/0.5)] p-3 border border-[hsl(var(--border))] space-y-2">
+          <div className="flex items-start gap-2">
+            <span className="text-[10px] font-bold text-[hsl(var(--primary))] mt-0.5 shrink-0">1.</span>
+            <p className="text-[10px] text-[hsl(var(--muted-foreground))]">
+              Go to your DNS provider (Cloudflare, Route53, etc.)
+            </p>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="text-[10px] font-bold text-[hsl(var(--primary))] mt-0.5 shrink-0">2.</span>
+            <div className="text-[10px] text-[hsl(var(--muted-foreground))] space-y-1">
+              <p>Add the following records:</p>
+              <div className="bg-black/20 p-2 rounded font-mono text-[9px] space-y-1">
+                <div className="flex justify-between">
+                  <span>Type: <code className="text-blue-400">CNAME</code></span>
+                  <span>Name: <code className="text-blue-400">@</code> (or root)</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Target:</span>
+                  <code className="text-emerald-400">{cnameTarget}</code>
+                </div>
+                <div className="border-t border-white/5 my-1" />
+                <div className="flex justify-between">
+                  <span>Type: <code className="text-blue-400">CNAME</code></span>
+                  <span>Name: <code className="text-blue-400">*</code> (wildcard)</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Target:</span>
+                  <code className="text-emerald-400">{cnameTarget}</code>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="text-[10px] font-bold text-[hsl(var(--primary))] mt-0.5 shrink-0">3.</span>
+            <p className="text-[10px] text-[hsl(var(--muted-foreground))]">
+              Click <strong>Verify</strong>. Once verified, TLS (Let&apos;s Encrypt) will be automatically provisioned for all subdomains.
+            </p>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+

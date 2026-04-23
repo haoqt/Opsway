@@ -126,6 +126,9 @@ def trigger_build(self, build_id: str, branch_id: str):
             session, build, BuildStatus.BUILDING,
             started_at=datetime.now(timezone.utc),
         )
+        branch.current_task = "building"
+        branch.current_task_status = "running"
+        session.commit()
         log(f"🚀 Build started: {project.name}/{branch.name}")
         log(f"   Commit: {build.commit_sha[:8]} — {build.commit_message}")
         log(f"   Environment: {branch.environment.value}")
@@ -211,6 +214,7 @@ def trigger_build(self, build_id: str, branch_id: str):
                 repo_path=str(local_path),
                 mailhog_host=settings.mailhog_host,
                 mailhog_smtp_port=settings.mailhog_smtp_port,
+                custom_domain=project.custom_domain if project.custom_domain_verified else None,
             )
 
             # ── Step 7.1: Check and Initialize DB if needed ──────
@@ -298,6 +302,8 @@ def trigger_build(self, build_id: str, branch_id: str):
             branch.last_commit_sha = commit_info["sha"]
             branch.last_commit_message = commit_info["message"]
             branch.last_deployed_at = datetime.now(timezone.utc)
+            branch.current_task = None
+            branch.current_task_status = None
             session.commit()
 
             finished = datetime.now(timezone.utc)
@@ -333,7 +339,8 @@ def trigger_build(self, build_id: str, branch_id: str):
                 duration_seconds=int((finished - (build.started_at or finished)).total_seconds()),
                 error_message=str(exc),
             )
-            
+            branch.current_task_status = "failed"
+            session.commit()
             # Execute Rollback if applicable
             if branch.environment == EnvironmentType.PRODUCTION and 'old_container_id' in locals() and old_container_id:
                 log("🔄 Initiating Auto-Rollback to previous container...")
