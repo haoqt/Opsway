@@ -25,11 +25,20 @@ export default function BranchBackupsPage() {
   const { id: projectId, branchId } = useParams<{ id: string; branchId: string }>();
   const qc = useQueryClient();
 
+  const { data: branch, isLoading: isBranchLoading } = useQuery({
+    queryKey: ["branch", projectId, branchId],
+    queryFn: () => branchesApi.get(projectId, branchId).then((r) => r.data),
+    refetchInterval: 5_000,
+  });
+
   const { data: backups, isLoading } = useQuery({
     queryKey: ["backups", projectId, branchId],
     queryFn: () => branchesApi.listBackups(projectId, branchId).then((r) => r.data as Backup[]),
     refetchInterval: 10_000,
   });
+
+  const isLocked = branch?.current_task_status === "running";
+  const currentTask = branch?.current_task || "task";
 
   const { mutate: createBackup, isPending: isCreating } = useMutation({
     mutationFn: () => branchesApi.createBackup(projectId, branchId),
@@ -70,6 +79,7 @@ export default function BranchBackupsPage() {
   };
 
   const handleRestore = (backupId: string) => {
+    if (isLocked) return;
     if (confirm("Are you sure you want to RESTORE this backup? This will WIPE the current database and filestore for this branch. The service will be stopped during restoration.")) {
       restoreBackup(backupId);
     }
@@ -77,7 +87,7 @@ export default function BranchBackupsPage() {
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || isLocked) return;
     
     if (!file.name.endsWith(".tar.gz")) {
       alert("Please upload a .tar.gz backup file.");
@@ -119,6 +129,7 @@ export default function BranchBackupsPage() {
             className="h-8 text-xs border-dashed border-primary/50 text-primary hover:bg-primary/5"
             onClick={() => fileInputRef.current?.click()}
             loading={isUploading}
+            disabled={isLocked}
           >
             <Download size={14} className="mr-2 rotate-180" />
             Upload & Restore
@@ -128,6 +139,7 @@ export default function BranchBackupsPage() {
             className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
             onClick={() => createBackup()}
             loading={isCreating}
+            disabled={isLocked}
           >
             <Database size={14} className="mr-2" />
             Create Backup
@@ -136,7 +148,23 @@ export default function BranchBackupsPage() {
       </Topbar>
       
       <div className="flex-1 overflow-y-auto p-6">
-        {isLoading ? (
+        {isLocked && (
+          <div className="mb-6 p-4 rounded-xl border border-amber-500/20 bg-amber-500/5 flex items-center gap-4 animate-in fade-in slide-in-from-top-4 duration-500">
+            <div className="p-2 rounded-full bg-amber-500/10 text-amber-500">
+              <RefreshCw size={20} className="animate-spin" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-amber-600 dark:text-amber-400 capitalize">
+                {currentTask} in progress...
+              </p>
+              <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                Backup actions are disabled while another task is running on this branch.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {(isLoading || isBranchLoading) ? (
           <div className="space-y-3">
             {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-20" />)}
           </div>

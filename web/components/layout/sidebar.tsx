@@ -1,10 +1,12 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useTheme } from "next-themes";
+import { useState, useEffect } from "react";
 import {
   LayoutDashboard, FolderGit2, Rocket, Settings,
   GitBranch, Terminal, ChevronRight, Activity,
-  LogOut, Bell, Search, ChevronLeft
+  LogOut, Bell, Search, ChevronLeft, Sun, Moon
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +17,24 @@ const NAV_ITEMS = [
   { href: "/monitoring", label: "Monitoring", icon: Activity },
   { href: "/settings",   label: "Settings",   icon: Settings },
 ];
+
+export function ThemeToggle() {
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return <div className="h-8 w-8" />;
+
+  return (
+    <button
+      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+      className="flex h-8 w-8 items-center justify-center rounded-lg text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--secondary))] hover:text-[hsl(var(--foreground))] transition-all active:scale-95"
+      title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+    >
+      {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+    </button>
+  );
+}
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -91,6 +111,7 @@ export function Topbar({ title, backHref, children }: { title: string; backHref?
       <h1 className="text-sm font-semibold text-[hsl(var(--foreground))]">{title}</h1>
       <div className="ml-auto flex items-center gap-2">
         {children}
+        <ThemeToggle />
         <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--secondary))] hover:text-[hsl(var(--foreground))] transition-all">
           <Bell size={15} />
         </button>

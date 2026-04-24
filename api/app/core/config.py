@@ -40,10 +40,10 @@ class Settings(BaseSettings):
 
     # Docker
     docker_socket: str = "unix:///var/run/docker.sock"
-    opsway_network_prefix: str = "opsway_proj"
+    opsway_network_prefix: str = "opsway"
 
     # Build
-    build_workspace: str = "/app/builds"   # Path inside the container
+    build_workspace: str = "/builds"   # Path inside the container
     host_build_workspace: str = ""         # Path on the host (e.g. for Mac/Win volume mounting)
     build_timeout: int = 600
     max_concurrent_builds: int = 5
@@ -61,6 +61,13 @@ class Settings(BaseSettings):
     webhook_base_url: str = "http://localhost:8000"
 
     traefik_domain: str = "localhost"
+
+    # SMTP Notifications (optional)
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "opsway@noreply.local"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

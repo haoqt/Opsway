@@ -96,6 +96,19 @@ def backup_branch(backup_id: str):
         pg_container_name = docker_mgr.get_db_container_name(project.slug, branch.name)
         odoo_container_name = docker_mgr.get_container_name(project.slug, branch.name)
 
+        # ── Distributed lock: prevent backup + build race on same branch ──
+        import redis as redis_lib
+        redis_client = redis_lib.from_url(settings.redis_url)
+        lock_key = f"opsway:branch_lock:{branch.id}"
+        lock = redis_client.lock(lock_key, timeout=600, blocking_timeout=30)
+
+        if not lock.acquire(blocking=True):
+            backup.status = "failed"
+            backup.error_message = "Could not acquire branch lock (build or another task is running on this branch)"
+            session.commit()
+            logger.warning(f"Backup {backup_id} skipped: branch {branch.name} is locked by another task")
+            return
+
         try:
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             object_name = f"{project.slug}/{branch.name}/{backup.backup_type}/backup_{timestamp}.tar.gz"
@@ -164,3 +177,10 @@ def backup_branch(backup_id: str):
             session.commit()
             logger.error(f"Backup failed for {backup_id}: {e}", exc_info=True)
             raise
+        finally:
+            # Release the lock
+            try:
+                lock.release()
+            except redis_lib.exceptions.LockError:
+                pass
+

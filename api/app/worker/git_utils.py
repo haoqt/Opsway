@@ -35,6 +35,12 @@ def clone_or_pull(
     local_path = get_build_dir(project_slug, branch_name)
     local_path.mkdir(parents=True, exist_ok=True)
 
+    # Fix dubious ownership issue in Docker
+    try:
+        git.cmd.Git().execute(["git", "config", "--global", "--add", "safe.directory", "*"])
+    except Exception as e:
+        logger.warning(f"Could not set safe.directory: {e}")
+
     env = {}
     if deploy_key_path and os.path.exists(deploy_key_path):
         env["GIT_SSH_COMMAND"] = f"ssh -i {deploy_key_path} -o StrictHostKeyChecking=no"
@@ -45,8 +51,11 @@ def clone_or_pull(
         with repo.git.custom_environment(**env):
             origin = repo.remotes.origin
             origin.fetch()
+            # Force reset to remote branch to handle detached HEAD or diverged history
             repo.git.checkout(branch_name)
-            origin.pull(branch_name)
+            repo.git.reset("--hard", f"origin/{branch_name}")
+            # Update submodules after pull (init any new ones too)
+            repo.submodule_update(recursive=True, init=True)
     else:
         logger.info(f"Cloning {repo_url}#{branch_name} → {local_path}")
         repo = Repo.clone_from(
@@ -55,7 +64,7 @@ def clone_or_pull(
             branch=branch_name,
             env=env,
         )
-        # Clone submodules
+        # Clone submodules recursively
         repo.submodule_update(recursive=True)
 
     return repo, local_path

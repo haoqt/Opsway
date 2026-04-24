@@ -2,38 +2,64 @@
 
 @layer base {
   :root {
-    --background: 222 47% 6%;
-    --foreground: 213 31% 91%;
-    --card: 222 47% 9%;
-    --card-foreground: 213 31% 91%;
-    --popover: 222 47% 9%;
-    --popover-foreground: 213 31% 91%;
-    --primary: 252 87% 67%;
-    --primary-foreground: 222 47% 6%;
-    --secondary: 222 47% 13%;
-    --secondary-foreground: 213 31% 91%;
-    --muted: 223 47% 14%;
-    --muted-foreground: 215 20% 55%;
-    --accent: 252 87% 67%;
-    --accent-foreground: 222 47% 6%;
-    --destructive: 0 72% 51%;
+    --background: 210 40% 98%;
+    --foreground: 224 71% 4%;
+    --card: 0 0% 100%;
+    --card-foreground: 224 71% 4%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 224 71% 4%;
+    --primary: 262 83% 58%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
-    --border: 223 47% 14%;
-    --input: 223 47% 14%;
-    --ring: 252 87% 67%;
-    --radius: 0.625rem;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 262 83% 58%;
+    --radius: 0.75rem;
 
     /* Status colors */
-    --success: 142 76% 36%;
-    --success-foreground: 142 76% 90%;
+    --success: 142 70% 45%;
+    --success-foreground: 144 70% 10%;
     --warning: 38 92% 50%;
     --warning-foreground: 38 92% 10%;
     --info: 199 89% 48%;
     --info-foreground: 199 89% 10%;
 
     /* Brand gradient */
-    --gradient-primary: linear-gradient(135deg, hsl(252 87% 67%), hsl(199 89% 48%));
-    --gradient-card: linear-gradient(145deg, hsl(222 47% 10%), hsl(222 47% 8%));
+    --gradient-primary: linear-gradient(135deg, hsl(262 83% 58%), hsl(199 89% 48%));
+    --gradient-card: linear-gradient(145deg, hsl(0 0% 100%), hsl(210 40% 98%));
+  }
+
+  .dark {
+    --background: 224 71% 4%;
+    --foreground: 213 31% 91%;
+    --card: 224 71% 6%;
+    --card-foreground: 213 31% 91%;
+    --popover: 224 71% 6%;
+    --popover-foreground: 213 31% 91%;
+    --primary: 263 70% 50%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 222.2 47.4% 11.2%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 223 47% 11%;
+    --muted-foreground: 215.4 16.3% 56.9%;
+    --accent: 216 34% 17%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 216 34% 17%;
+    --input: 216 34% 17%;
+    --ring: 263 70% 50%;
+
+    /* Brand gradient */
+    --gradient-primary: linear-gradient(135deg, hsl(263 70% 50%), hsl(199 89% 48%));
+    --gradient-card: linear-gradient(145deg, hsl(224 71% 7%), hsl(224 71% 4%));
   }
 }
 

@@ -2,7 +2,7 @@
 import React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
-import { projectsApi, branchesApi, domainsApi } from "@/lib/api";
+import { projectsApi, branchesApi, domainsApi, monitoringApi } from "@/lib/api";
 import { ProjectDetail, Branch, DomainVerification } from "@/lib/types";
 import { Topbar } from "@/components/layout/sidebar";
 import { Card, Button, Skeleton, EmptyState } from "@/components/ui/primitives";
@@ -26,7 +26,7 @@ export default function ProjectDetailPage() {
   const { data: project, isLoading, refetch } = useQuery({
     queryKey: ["project", id],
     queryFn: () => projectsApi.get(id).then((r) => r.data as ProjectDetail),
-    refetchInterval: 3000,
+    refetchInterval: 10_000,
   });
 
   const { mutate: testConnection, isPending: isTesting } = useMutation({
@@ -305,6 +305,9 @@ export default function ProjectDetailPage() {
                 </div>
               </Card>
 
+              {/* Notifications */}
+              <NotificationSettings project={project} projectId={id} />
+
               {/* Custom Domains */}
               <CustomDomainsSettings project={project} projectId={id} />
             </div>
@@ -349,22 +352,28 @@ function BranchColumn({
 }) {
   const envThemes = {
     development: {
-      border: "border-violet-500/20",
-      bg: "bg-violet-500/5",
+      border: "border-violet-500/30",
+      bg: "bg-violet-500/[0.02] dark:bg-violet-500/[0.03]",
+      headerBg: "bg-violet-500/10",
       accent: "bg-violet-500",
-      text: "text-violet-400"
+      text: "text-violet-600 dark:text-violet-400",
+      glow: "shadow-[0_0_15px_rgba(139,92,246,0.1)]"
     },
     staging: {
-      border: "border-amber-500/20",
-      bg: "bg-amber-500/5",
+      border: "border-amber-500/30",
+      bg: "bg-amber-500/[0.02] dark:bg-amber-500/[0.03]",
+      headerBg: "bg-amber-500/10",
       accent: "bg-amber-500",
-      text: "text-amber-400"
+      text: "text-amber-600 dark:text-amber-400",
+      glow: "shadow-[0_0_15px_rgba(245,158,11,0.1)]"
     },
     production: {
-      border: "border-emerald-500/20",
-      bg: "bg-emerald-500/5",
-      accent: "bg-emerald-400",
-      text: "text-emerald-400"
+      border: "border-emerald-500/30",
+      bg: "bg-emerald-500/[0.02] dark:bg-emerald-500/[0.03]",
+      headerBg: "bg-emerald-500/10",
+      accent: "bg-emerald-500",
+      text: "text-emerald-600 dark:text-emerald-400",
+      glow: "shadow-[0_0_15px_rgba(16,185,129,0.1)]"
     },
   };
 
@@ -372,32 +381,37 @@ function BranchColumn({
 
   return (
     <div className={cn(
-      "flex flex-col h-full rounded-2xl border border-dashed transition-all duration-300",
+      "flex flex-col h-full rounded-2xl border transition-all duration-300",
       theme.border,
-      theme.bg
+      theme.bg,
+      theme.glow
     )}>
       {/* Column Header */}
-      <div className="p-4 border-b border-dashed border-inherit">
+      <div className={cn("p-4 border-b border-inherit rounded-t-2xl", theme.headerBg)}>
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-2">
-            <span className={cn("h-1.5 w-1.5 rounded-full", theme.accent)} />
-            <h3 className="text-sm font-bold tracking-tight">{title}</h3>
+            <div className={cn("h-2 w-2 rounded-full", theme.accent)} />
+            <h3 className={cn("text-xs font-black uppercase tracking-widest", theme.text)}>
+              {title}
+            </h3>
           </div>
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-white/5 text-[hsl(var(--muted-foreground))]">
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-secondary text-[hsl(var(--foreground))] border border-[hsl(var(--border))]">
             {branches.length}
           </span>
         </div>
-        <p className="text-[10px] text-[hsl(var(--muted-foreground))] leading-tight">
+        <p className="text-[10px] text-[hsl(var(--muted-foreground))] font-medium leading-tight opacity-80">
           {description}
         </p>
       </div>
 
       {/* Column Body */}
-      <div className="flex-1 p-3 space-y-3 overflow-y-auto max-h-[calc(100vh-320px)] scrollbar-hide">
+      <div className="flex-1 p-3 space-y-4 overflow-y-auto max-h-[calc(100vh-280px)] custom-scrollbar">
         {branches.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10 opacity-40">
-            <Layers size={24} className="mb-2 stroke-1" />
-            <p className="text-[10px] font-medium">Empty Tier</p>
+          <div className="flex flex-col items-center justify-center py-16 opacity-30">
+            <div className={cn("p-3 rounded-full bg-black/10 mb-3", theme.text)}>
+              <Layers size={24} className="stroke-1" />
+            </div>
+            <p className="text-[10px] font-bold uppercase tracking-tighter">No {title} Branches</p>
           </div>
         ) : (
           branches.map((branch) => (
@@ -408,6 +422,7 @@ function BranchColumn({
               projectSlug={projectSlug}
               allBranches={allBranches}
               onRefresh={onRefresh}
+              themeColor={theme.accent}
             />
           ))
         )}
@@ -419,16 +434,25 @@ function BranchColumn({
 // ── Branch Card ────────────────────────────────────────────────
 
 function BranchCard({
-  branch, projectId, projectSlug, allBranches, onRefresh,
+  branch, projectId, projectSlug, allBranches, onRefresh, themeColor,
 }: {
   branch: Branch;
   projectId: string;
   projectSlug: string;
   allBranches: Branch[];
   onRefresh: () => void;
+  themeColor: string;
 }) {
   const [showCloneMenu, setShowCloneMenu] = React.useState(false);
   const [cloneSourceId, setCloneSourceId] = React.useState("");
+
+  // Resource metrics polling (only when running)
+  const { data: metrics } = useQuery({
+    queryKey: ["branch-metrics", branch.id],
+    queryFn: () => monitoringApi.getBranchMetrics(projectId, branch.id).then(r => r.data),
+    refetchInterval: 15_000,
+    enabled: branch.container_status === "running",
+  });
 
   const { mutate: promote, isPending: isPromoting } = useMutation({
     mutationFn: (targetEnv: string) => branchesApi.promote(projectId, branch.id, targetEnv),
@@ -446,216 +470,269 @@ function BranchCard({
   const isFailed = branch.current_task_status === "failed";
   
   return (
-    <div className="group relative rounded-xl border border-[hsl(var(--border))] bg-[var(--gradient-card)] p-4 hover:border-[hsl(var(--primary)/0.4)] hover:shadow-xl hover:shadow-[hsl(var(--primary)/0.05)] transition-all duration-300">
-      {/* Status Dot (Absolute) */}
-      <div className="absolute top-4 right-4 flex flex-col items-end gap-2">
-        {isBusy ? (
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20">
-            <Loader2 size={10} className="animate-spin text-blue-400" />
-            <span className="text-[9px] font-semibold text-blue-400 uppercase tracking-wider capitalize">{branch.current_task}...</span>
-          </div>
-        ) : isFailed ? (
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/20" title="Task failed">
-            <AlertCircle size={10} className="text-red-400" />
-            <span className="text-[9px] font-semibold text-red-400 uppercase tracking-wider">Failed</span>
-          </div>
-        ) : isRunning ? (
-          <div className="flex items-center gap-1.5">
-            <span className="text-[9px] font-medium text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity">Online</span>
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_hsl(var(--success))]" />
-          </div>
-        ) : (
-          <span className="h-2 w-2 rounded-full bg-zinc-700" title="Offline" />
-        )}
-      </div>
+    <div className="group relative rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] overflow-hidden hover:border-[hsl(var(--primary)/0.4)] hover:shadow-xl hover:shadow-[hsl(var(--primary)/0.05)] transition-all duration-300">
+      {/* Left Accent Bar */}
+      <div className={cn("absolute left-0 top-0 bottom-0 w-1", themeColor)} />
 
-      {/* Main Info */}
-      <div className="space-y-3">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <GitBranch size={14} className="text-[hsl(var(--primary))]" />
-            <span className="text-sm font-bold text-[hsl(var(--foreground))] truncate pr-12">
-              {branch.name}
-            </span>
-          </div>
-          
-          {branch.last_commit_sha ? (
-            <div className="flex items-start gap-2 text-[11px] text-[hsl(var(--muted-foreground))]">
-              <GitCommit size={12} className="mt-0.5 shrink-0" />
-              <div className="min-w-0">
-                <span className="font-mono text-[hsl(var(--foreground))] mr-1.5">{shortSha(branch.last_commit_sha)}</span>
-                <span className="truncate block italic">"{branch.last_commit_message}"</span>
+      <div className="p-4">
+        {/* Status Dot (Absolute) */}
+        <div className="absolute top-4 right-4 flex flex-col items-end gap-2">
+          {isBusy ? (
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20">
+              <Loader2 size={10} className="animate-spin text-blue-400" />
+              <span className="text-[9px] font-bold text-blue-400 uppercase tracking-tighter">{branch.current_task}</span>
+            </div>
+          ) : isFailed ? (
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/20" title="Task failed">
+              <AlertCircle size={10} className="text-red-400" />
+              <span className="text-[9px] font-bold text-red-400 uppercase tracking-tighter">Failed</span>
+            </div>
+          ) : isRunning ? (
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-tighter">Running</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-zinc-500/10 border border-zinc-500/20">
+              <span className="h-1.5 w-1.5 rounded-full bg-zinc-500" />
+              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-tighter">Offline</span>
+            </div>
+          )}
+        </div>
+
+        {/* Main Info */}
+        <div className="space-y-3">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <GitBranch size={14} className="text-[hsl(var(--primary))]" />
+              <span className="text-sm font-bold text-[hsl(var(--foreground))] truncate pr-12">
+                {branch.name}
+              </span>
+            </div>
+            
+            {branch.last_commit_sha ? (
+              <div className="flex items-start gap-2 text-[11px] text-[hsl(var(--muted-foreground))]">
+                <GitCommit size={12} className="mt-0.5 shrink-0" />
+                <div className="min-w-0">
+                  <span className="font-mono text-[hsl(var(--foreground))] mr-1.5">{shortSha(branch.last_commit_sha)}</span>
+                  <span className="truncate block italic">"{branch.last_commit_message}"</span>
+                </div>
               </div>
-            </div>
-          ) : (
-            <p className="text-[10px] text-[hsl(var(--muted-foreground))] italic">No commits yet</p>
-          )}
-        </div>
-
-        {/* Stats/Meta row */}
-        <div className="flex items-center gap-4 py-1">
-          <div className="flex flex-col">
-            <span className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider font-bold">Odoo</span>
-            <span className="text-[11px] font-medium">{branch.odoo_version || "17.0"}</span>
-          </div>
-          <div className="h-6 w-[1px] bg-[hsl(var(--border))]" />
-          <div className="flex flex-col">
-            <span className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider font-bold">Deployed</span>
-            <span className="text-[11px] font-medium">{branch.last_deployed_at ? formatTimeAgo(branch.last_deployed_at) : "Never"}</span>
-          </div>
-        </div>
-
-        {/* Actions - Primary Row */}
-        <div className="flex items-center gap-2 pt-1">
-          {isRunning && branch.container_url ? (
-            <Button
-              asChild
-              variant="secondary"
-              size="sm"
-              className={cn("h-8 flex-1 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 border-none text-[11px] font-bold", isBusy && "opacity-50 pointer-events-none")}
-            >
-              <a href={branch.container_url} target="_blank" rel="noopener noreferrer">
-                <ExternalLink size={12} className="mr-1.5" />
-                Live Preview
-              </a>
-            </Button>
-          ) : (
-            <Button
-              variant="primary"
-              size="sm"
-              className="h-8 flex-1 text-[11px] font-bold"
-              loading={isDeploying || isBusy}
-              disabled={isBusy}
-              onClick={() => deploy()}
-            >
-              <Rocket size={12} className="mr-1.5" />
-              Deploy Now
-            </Button>
-          )}
-
-          <div className="flex items-center gap-1">
-            <Button 
-              variant="outline" 
-              size="sm" 
-              disabled={isBusy}
-              className={cn("h-8 px-2 flex items-center gap-1.5 transition-colors", showCloneMenu && "bg-blue-500/10 border-blue-500/30 text-blue-400")} 
-              title="Clone From"
-              onClick={() => setShowCloneMenu(!showCloneMenu)}
-            >
-              <Copy size={13} />
-            </Button>
-            <Link href={`/projects/${projectId}/branches/${branch.id}/terminal`}>
-               <Button variant="outline" size="sm" className="h-8 w-8 p-0" title="Terminal">
-                <Terminal size={13} />
-               </Button>
-            </Link>
-            <Link href={`/projects/${projectId}/branches/${branch.id}/backups`}>
-               <Button variant="outline" size="sm" className="h-8 w-8 p-0" title="Backups">
-                <Database size={13} />
-               </Button>
-            </Link>
-          </div>
-        </div>
-
-        {/* Clone Menu */}
-        {showCloneMenu && (
-          <div className="mt-2 p-2 rounded bg-black/20 border border-[hsl(var(--border))] space-y-2 animate-in fade-in slide-in-from-top-2">
-            <p className="text-[10px] text-[hsl(var(--muted-foreground))]">Select a source branch to clone data into <strong>{branch.name}</strong>. This will overwrite existing data.</p>
-            <div className="flex gap-2">
-              <select
-                className="flex-1 bg-black/40 border border-[hsl(var(--border))] rounded px-2 py-1 text-[11px] text-[hsl(var(--foreground))] focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
-                value={cloneSourceId}
-                onChange={(e) => setCloneSourceId(e.target.value)}
-              >
-                <option value="" disabled>Select source branch...</option>
-                {allBranches.filter(b => b.id !== branch.id).map(b => (
-                  <option key={b.id} value={b.id}>{b.name} ({b.environment})</option>
-                ))}
-              </select>
-              <Button
-                size="sm"
-                className="h-7 text-[10px] px-3 bg-blue-500 hover:bg-blue-600 text-white"
-                disabled={!cloneSourceId}
-                onClick={() => {
-                  if (confirm(`Are you sure you want to OVERWRITE ${branch.name} with data from the selected branch?`)) {
-                    branchesApi.cloneFrom(projectId, branch.id, cloneSourceId)
-                      .then(() => {
-                        setShowCloneMenu(false);
-                        onRefresh();
-                        alert("Clone task has been queued.");
-                      })
-                      .catch((err: any) => alert(err.response?.data?.detail || "Cloning failed"));
-                  }
-                }}
-              >
-                Clone
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Quick Promotion */}
-        <div className="grid grid-cols-2 gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-           {branch.environment === "development" && (
-             <Button
-               variant="ghost"
-               size="sm"
-               className="h-7 text-[10px] gap-1 text-[hsl(var(--muted-foreground))] hover:text-amber-400 hover:bg-amber-400/10"
-               loading={isPromoting}
-               disabled={isBusy}
-               onClick={() => promote("staging")}
-             >
-               <ChevronRight size={10} /> To Staging
-             </Button>
-           )}
-           {(branch.environment === "development" || branch.environment === "staging") && (
-             <Button
-               variant="ghost"
-               size="sm"
-               className="h-7 text-[10px] gap-1 text-[hsl(var(--muted-foreground))] hover:text-emerald-400 hover:bg-emerald-400/10"
-               loading={isPromoting}
-               disabled={isBusy}
-               onClick={() => promote("production")}
-             >
-               <ChevronRight size={10} /> To Production
-             </Button>
-           )}
-           {branch.environment === "staging" && (
-             <Button
-               variant="ghost"
-               size="sm"
-               className="h-7 text-[10px] gap-1 text-[hsl(var(--muted-foreground))] hover:text-violet-400 hover:bg-violet-400/10"
-               loading={isPromoting}
-               disabled={isBusy}
-               onClick={() => promote("development")}
-             >
-               <ChevronRight size={10} /> Back to Dev
-             </Button>
-           )}
-        </div>
-
-        {/* Neutralization badge */}
-        {branch.is_neutralized && (
-          <div className="flex items-center gap-1.5 mt-2 px-2 py-1 rounded-md bg-amber-500/10 border border-amber-500/20">
-            <ShieldCheck size={11} className="text-amber-400" />
-            <span className="text-[9px] font-semibold text-amber-400 uppercase tracking-wider">Neutralized</span>
-            {branch.neutralized_at && (
-              <span className="text-[9px] text-[hsl(var(--muted-foreground))] ml-auto">{formatTimeAgo(branch.neutralized_at)}</span>
+            ) : (
+              <p className="text-[10px] text-[hsl(var(--muted-foreground))] italic">No commits yet</p>
             )}
           </div>
-        )}
 
+          {/* Stats/Meta row */}
+          <div className="flex items-center gap-4 py-1">
+            <div className="flex flex-col">
+              <span className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider font-bold">Odoo</span>
+              <span className="text-[11px] font-medium">{branch.odoo_version || "17.0"}</span>
+            </div>
+            <div className="h-6 w-[1px] bg-[hsl(var(--border))]" />
+            <div className="flex flex-col">
+              <span className="text-[9px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider font-bold">Deployed</span>
+              <span className="text-[11px] font-medium">{branch.last_deployed_at ? formatTimeAgo(branch.last_deployed_at) : "Never"}</span>
+            </div>
+            {/* Resource metrics */}
+            {metrics && branch.container_status === "running" && (
+              <>
+                <div className="h-6 w-[1px] bg-[hsl(var(--border))]" />
+                <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[8px] text-[hsl(var(--muted-foreground))] uppercase font-bold">CPU</span>
+                    <span className="text-[9px] font-mono">{metrics.cpu}%</span>
+                  </div>
+                  <div className="h-1 rounded-full bg-white/10 overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{
+                        width: `${Math.min(metrics.cpu, 100)}%`,
+                        background: metrics.cpu > 80 ? "hsl(0 72% 51%)" : metrics.cpu > 50 ? "hsl(38 92% 50%)" : "hsl(142 71% 45%)"
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[8px] text-[hsl(var(--muted-foreground))] uppercase font-bold">RAM</span>
+                    <span className="text-[9px] font-mono">{metrics.memory}%</span>
+                  </div>
+                  <div className="h-1 rounded-full bg-white/10 overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{
+                        width: `${Math.min(metrics.memory, 100)}%`,
+                        background: metrics.memory > 85 ? "hsl(0 72% 51%)" : metrics.memory > 60 ? "hsl(38 92% 50%)" : "hsl(217 91% 60%)"
+                      }}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
 
+          {/* Actions - Primary Row */}
+          <div className="flex items-center gap-2 pt-1">
+            {isRunning && branch.container_url ? (
+              <Button
+                asChild
+                variant="secondary"
+                size="sm"
+                className={cn("h-8 flex-1 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 border-none text-[11px] font-bold", isBusy && "opacity-50 pointer-events-none")}
+              >
+                <a href={branch.container_url} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink size={12} className="mr-1.5" />
+                  Live Preview
+                </a>
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                size="sm"
+                className="h-8 flex-1 text-[11px] font-bold"
+                loading={isDeploying || isBusy}
+                disabled={isBusy}
+                onClick={() => deploy()}
+              >
+                <Rocket size={12} className="mr-1.5" />
+                Deploy Now
+              </Button>
+            )}
+
+            <div className="flex items-center gap-1">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                disabled={isBusy}
+                className={cn("h-8 px-2 flex items-center gap-1.5 transition-colors", showCloneMenu && "bg-blue-500/10 border-blue-500/30 text-blue-400")} 
+                title="Clone From"
+                onClick={() => setShowCloneMenu(!showCloneMenu)}
+              >
+                <Copy size={13} />
+              </Button>
+              {/* Mail Catcher — dev/staging only */}
+              {(branch.environment === "development" || branch.environment === "staging") && (
+                <a
+                  href={`${process.env.NEXT_PUBLIC_MAILHOG_URL || "http://localhost:8025"}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="View Intercepted Emails (MailHog)"
+                >
+                  <Button variant="outline" size="sm" className="h-8 w-8 p-0 hover:border-amber-500/40 hover:text-amber-400">
+                    <Mail size={13} />
+                  </Button>
+                </a>
+              )}
+              <Link href={`/projects/${projectId}/branches/${branch.id}/terminal`}>
+                 <Button variant="outline" size="sm" className="h-8 w-8 p-0" title="Terminal">
+                  <Terminal size={13} />
+                 </Button>
+              </Link>
+              <Link href={`/projects/${projectId}/branches/${branch.id}/backups`}>
+                 <Button variant="outline" size="sm" className="h-8 w-8 p-0" title="Backups">
+                  <Database size={13} />
+                 </Button>
+              </Link>
+            </div>
+          </div>
+
+          {/* Clone Menu */}
+          {showCloneMenu && (
+            <div className="mt-2 p-2 rounded bg-secondary/50 border border-[hsl(var(--border))] space-y-2 animate-in fade-in slide-in-from-top-2">
+              <p className="text-[10px] text-[hsl(var(--muted-foreground))]">Select a source branch to clone data into <strong>{branch.name}</strong>. This will overwrite existing data.</p>
+              <div className="flex gap-2">
+                <select
+                  className="flex-1 bg-background border border-[hsl(var(--border))] rounded px-2 py-1 text-[11px] text-[hsl(var(--foreground))] focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
+                  value={cloneSourceId}
+                  onChange={(e) => setCloneSourceId(e.target.value)}
+                >
+                  <option value="" disabled>Select source branch...</option>
+                  {allBranches.filter(b => b.id !== branch.id).map(b => (
+                    <option key={b.id} value={b.id}>{b.name} ({b.environment})</option>
+                  ))}
+                </select>
+                <Button
+                  size="sm"
+                  className="h-7 text-[10px] px-3 bg-blue-500 hover:bg-blue-600 text-white"
+                  disabled={!cloneSourceId}
+                  onClick={() => {
+                    if (confirm(`Are you sure you want to OVERWRITE ${branch.name} with data from the selected branch?`)) {
+                      branchesApi.cloneFrom(projectId, branch.id, cloneSourceId)
+                        .then(() => {
+                          setShowCloneMenu(false);
+                          onRefresh();
+                          alert("Clone task has been queued.");
+                        })
+                        .catch((err: any) => alert(err.response?.data?.detail || "Cloning failed"));
+                    }
+                  }}
+                >
+                  Clone
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Quick Promotion */}
+          <div className="grid grid-cols-2 gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+             {branch.environment === "development" && (
+               <Button
+                 variant="ghost"
+                 size="sm"
+                 className="h-7 text-[10px] gap-1 text-[hsl(var(--muted-foreground))] hover:text-amber-400 hover:bg-amber-400/10"
+                 loading={isPromoting}
+                 disabled={isBusy}
+                 onClick={() => promote("staging")}
+               >
+                 <ChevronRight size={10} /> To Staging
+               </Button>
+             )}
+             {(branch.environment === "development" || branch.environment === "staging") && (
+               <Button
+                 variant="ghost"
+                 size="sm"
+                 className="h-7 text-[10px] gap-1 text-[hsl(var(--muted-foreground))] hover:text-emerald-400 hover:bg-emerald-400/10"
+                 loading={isPromoting}
+                 disabled={isBusy}
+                 onClick={() => promote("production")}
+               >
+                 <ChevronRight size={10} /> To Production
+               </Button>
+             )}
+             {branch.environment === "staging" && (
+               <Button
+                 variant="ghost"
+                 size="sm"
+                 className="h-7 text-[10px] gap-1 text-[hsl(var(--muted-foreground))] hover:text-violet-400 hover:bg-violet-400/10"
+                 loading={isPromoting}
+                 disabled={isBusy}
+                 onClick={() => promote("development")}
+               >
+                 <ChevronRight size={10} /> Back to Dev
+               </Button>
+             )}
+          </div>
+
+          {/* Neutralization badge */}
+          {branch.is_neutralized && (
+            <div className="flex items-center gap-1.5 mt-2 px-2 py-1 rounded-md bg-amber-500/10 border border-amber-500/20">
+              <ShieldCheck size={11} className="text-amber-600 dark:text-amber-400" />
+              <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Neutralized</span>
+              {branch.neutralized_at && (
+                <span className="text-[9px] text-[hsl(var(--muted-foreground))] ml-auto">{formatTimeAgo(branch.neutralized_at)}</span>
+              )}
+            </div>
+          )}
+
+          {/* Bottom Link */}
+          <Link 
+            href={`/projects/${projectId}/branches/${branch.id}/builds`}
+            className="mt-4 flex items-center justify-center gap-1.5 text-[10px] font-black text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))] transition-colors border-t border-[hsl(var(--border))] pt-3"
+          >
+            <Layers size={10} />
+            VIEW BUILD HISTORY
+          </Link>
+        </div>
       </div>
-      
-      {/* Bottom Link */}
-      <Link 
-        href={`/projects/${projectId}/branches/${branch.id}/builds`}
-        className="mt-4 flex items-center justify-center gap-1.5 text-[10px] font-bold text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] transition-colors border-t border-[hsl(var(--border))] pt-3"
-      >
-        <Layers size={10} />
-        VIEW BUILD HISTORY
-      </Link>
     </div>
   );
 }
@@ -879,6 +956,103 @@ function CustomDomainsSettings({ project, projectId }: { project: ProjectDetail;
               Click <strong>Verify</strong>. Once verified, TLS (Let&apos;s Encrypt) will be automatically provisioned for all subdomains.
             </p>
           </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+
+// ── Notification Settings ──────────────────────────────────────
+
+function NotificationSettings({ project, projectId }: { project: ProjectDetail; projectId: string }) {
+  const qc = useQueryClient();
+  const [email, setEmail] = React.useState(project.notification_email || "");
+  const [webhookUrl, setWebhookUrl] = React.useState(project.notification_webhook_url || "");
+  const [saved, setSaved] = React.useState(false);
+
+  const handleSave = () => {
+    projectsApi.update(projectId, {
+      notification_email: email.trim() || null,
+      notification_webhook_url: webhookUrl.trim() || null,
+    }).then(() => {
+      qc.invalidateQueries({ queryKey: ["project", projectId] });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    });
+  };
+
+  return (
+    <Card className="p-4 space-y-4 shadow-sm border-[hsl(var(--border))]">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] flex items-center gap-2">
+          <Mail size={12} />
+          Notifications
+        </h3>
+        <span className="text-[9px] px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-400 font-bold">
+          Build Events
+        </span>
+      </div>
+
+      <p className="text-[10px] text-[hsl(var(--muted-foreground))] leading-relaxed">
+        Get notified when builds start, succeed, or fail. Supports email and/or custom webhooks (Slack, Discord, etc).
+      </p>
+
+      <div className="space-y-3">
+        <div>
+          <label className="text-[10px] font-bold uppercase text-[hsl(var(--muted-foreground))] block mb-1">
+            Notification Email
+          </label>
+          <input
+            type="email"
+            placeholder="team@yourcompany.com"
+            className="w-full bg-black/20 border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="text-[10px] font-bold uppercase text-[hsl(var(--muted-foreground))] block mb-1">
+            Webhook URL <span className="text-[8px] normal-case font-normal">(Slack, Discord, or any HTTP endpoint)</span>
+          </label>
+          <input
+            type="url"
+            placeholder="https://hooks.slack.com/services/..."
+            className="w-full bg-black/20 border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
+            value={webhookUrl}
+            onChange={(e) => setWebhookUrl(e.target.value)}
+          />
+        </div>
+
+        <div className="flex items-center gap-2 pt-1">
+          <Button
+            size="sm"
+            className="h-8 text-[11px] font-bold px-4"
+            onClick={handleSave}
+          >
+            {saved ? <><CheckCircle2 size={12} className="mr-1.5" /> Saved!</> : "Save Notifications"}
+          </Button>
+          {(email || webhookUrl) && (
+            <p className="text-[9px] text-[hsl(var(--muted-foreground))]">
+              Notifications active for: {[email && "Email", webhookUrl && "Webhook"].filter(Boolean).join(", ")}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-lg bg-[hsl(var(--secondary)/0.3)] p-3 border border-[hsl(var(--border))]">
+        <p className="text-[9px] font-bold uppercase text-[hsl(var(--muted-foreground))] mb-1.5">Events Triggered</p>
+        <div className="flex flex-wrap gap-2">
+          {[
+            { label: "🚀 Build Started", color: "text-blue-400 bg-blue-500/10 border-blue-500/20" },
+            { label: "✅ Build Succeeded", color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" },
+            { label: "❌ Build Failed", color: "text-red-400 bg-red-500/10 border-red-500/20" },
+          ].map(({ label, color }) => (
+            <span key={label} className={`text-[9px] font-semibold px-2 py-0.5 rounded-full border ${color}`}>
+              {label}
+            </span>
+          ))}
         </div>
       </div>
     </Card>

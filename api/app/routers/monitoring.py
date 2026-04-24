@@ -11,7 +11,7 @@ from app.worker.docker_manager import DockerManager
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
 
 @router.get("/stats")
-async def get_stats(current_user: User = Depends(get_current_user)):
+def get_stats(current_user: User = Depends(get_current_user)):
     """Return actual infrastructure stats for Opsway resources."""
     docker = DockerManager()
     resources = docker.list_all_opsway_resources()
@@ -21,13 +21,15 @@ async def get_stats(current_user: User = Depends(get_current_user)):
     
     # Process Instances
     instances_data = []
+    bulk_metrics = docker.get_all_metrics_bulk()
+
     for c in resources["instances"]:
-        metrics = docker.get_container_metrics(c)
+        metrics = bulk_metrics.get(c.name, {"cpu": 0.0, "memory": 0.0, "status": c.status})
         total_cpu += metrics["cpu"]
         total_mem += metrics["memory"]
         instances_data.append({
             "name": c.name,
-            "status": metrics["status"],
+            "status": c.status,
             "cpu": metrics["cpu"],
             "memory": metrics["memory"],
             "project": c.labels.get("opsway.project"),
@@ -37,12 +39,12 @@ async def get_stats(current_user: User = Depends(get_current_user)):
     # Process Services
     services_data = []
     for c in resources["services"]:
-        metrics = docker.get_container_metrics(c)
+        metrics = bulk_metrics.get(c.name, {"cpu": 0.0, "memory": 0.0, "status": c.status})
         total_cpu += metrics["cpu"]
         total_mem += metrics["memory"]
         services_data.append({
             "name": c.name,
-            "status": metrics["status"],
+            "status": c.status,
             "cpu": metrics["cpu"],
             "memory": metrics["memory"]
         })
@@ -80,3 +82,40 @@ async def get_stats(current_user: User = Depends(get_current_user)):
         "instances": instances_data,
         "services": services_data
     }
+
+
+@router.get("/projects/{project_id}/branches/{branch_id}/metrics")
+async def get_branch_metrics(
+    project_id: str,
+    branch_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Return resource metrics for a specific branch container."""
+    from app.core.database import AsyncSessionLocal
+    from app.models import Branch, Project
+    import uuid
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        stmt = select(Branch).where(Branch.id == uuid.UUID(branch_id))
+        result = await session.execute(stmt)
+        branch = result.scalar_one_or_none()
+
+    if not branch or not branch.container_id:
+        return {"cpu": 0.0, "memory": 0.0, "status": "offline", "uptime": None}
+
+    import asyncio
+    docker = DockerManager()
+    try:
+        container = await asyncio.to_thread(docker.get_container, branch.container_id)
+        if not container:
+            return {"cpu": 0.0, "memory": 0.0, "status": "offline", "uptime": None}
+        metrics = await asyncio.to_thread(docker.get_container_metrics, container)
+        return {
+            "cpu": round(metrics.get("cpu", 0.0), 1),
+            "memory": round(metrics.get("memory", 0.0), 1),
+            "status": metrics.get("status", "unknown"),
+            "uptime": None,
+        }
+    except Exception as e:
+        return {"cpu": 0.0, "memory": 0.0, "status": "error", "error": str(e)}

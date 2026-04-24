@@ -133,6 +133,10 @@ class Project(Base):
     backup_retention_weekly: Mapped[int] = mapped_column(Integer, default=4)
     backup_retention_monthly: Mapped[int] = mapped_column(Integer, default=3)
 
+    # Notifications (Phase 2)
+    notification_email: Mapped[str | None] = mapped_column(String(255))  # email to notify on build events
+    notification_webhook_url: Mapped[str | None] = mapped_column(String(512))  # generic webhook URL
+
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

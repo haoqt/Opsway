@@ -106,6 +106,8 @@ export const buildsApi = {
 
 export const monitoringApi = {
   getStats: () => api.get("/monitoring/stats"),
+  getBranchMetrics: (projectId: string, branchId: string) =>
+    api.get(`/monitoring/projects/${projectId}/branches/${branchId}/metrics`),
 };
 
 export const statsApi = {

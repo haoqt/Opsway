@@ -201,7 +201,8 @@ services:
       dockerfile: Dockerfile
     container_name: opsway_worker
     restart: unless-stopped
-    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=5 -Q builds,default
+    # Build worker: dedicated pool for CI/CD builds (heavy, long-running)
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=3 -Q builds --hostname=worker-builds@%h
     depends_on:
       postgres:
         condition: service_healthy
@@ -209,6 +210,7 @@ services:
         condition: service_healthy
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://opsway:opsway_secret@postgres:5432/opsway}
+      - DATABASE_SYNC_URL=${DATABASE_SYNC_URL:-postgresql+psycopg2://opsway:opsway_secret@postgres:5432/opsway}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
@@ -221,7 +223,7 @@ services:
       - MAILHOG_HOST=${MAILHOG_HOST:-mailhog}
       - MAILHOG_SMTP_PORT=${MAILHOG_SMTP_PORT:-1025}
       - APP_ENV=${APP_ENV:-development}
-      - BUILD_WORKSPACE=${BUILD_WORKSPACE:-/app/builds}
+      - BUILD_WORKSPACE=${BUILD_WORKSPACE:-/builds}
       - HOST_BUILD_WORKSPACE=${HOST_BUILD_WORKSPACE}
       - BUILD_TIMEOUT=${BUILD_TIMEOUT:-600}
       - ODOO_IMAGE_V16=${ODOO_IMAGE_V16:-odoo:16.0}
@@ -229,7 +231,47 @@ services:
       - ODOO_IMAGE_V18=${ODOO_IMAGE_V18:-odoo:18.0}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./builds:/app/builds
+      - ./builds:/builds
+      - ./api:/app
+    networks:
+      - opsway_internal
+
+  # -------------------------------------------------------------
+  # Opsway Worker (Default) — Backup, Clone, Restore, Cleanup
+  # -------------------------------------------------------------
+  worker_default:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: opsway_worker_default
+    restart: unless-stopped
+    # Default worker: backup/clone/restore (I/O heavy but not blocking builds)
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=4 -Q default --hostname=worker-default@%h
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://opsway:opsway_secret@postgres:5432/opsway}
+      - DATABASE_SYNC_URL=${DATABASE_SYNC_URL:-postgresql+psycopg2://opsway:opsway_secret@postgres:5432/opsway}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      - SECRET_KEY=${SECRET_KEY:-change-me}
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-opsway_minio}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-opsway_minio_secret}
+      - MINIO_SECURE=${MINIO_SECURE:-false}
+      - APP_ENV=${APP_ENV:-development}
+      - BUILD_WORKSPACE=${BUILD_WORKSPACE:-/builds}
+      - HOST_BUILD_WORKSPACE=${HOST_BUILD_WORKSPACE}
+      - ODOO_IMAGE_V16=${ODOO_IMAGE_V16:-odoo:16.0}
+      - ODOO_IMAGE_V17=${ODOO_IMAGE_V17:-odoo:17.0}
+      - ODOO_IMAGE_V18=${ODOO_IMAGE_V18:-odoo:18.0}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./builds:/builds
       - ./api:/app
     networks:
       - opsway_internal

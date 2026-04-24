@@ -81,6 +81,8 @@ class ProjectUpdate(BaseModel):
     backup_retention_daily: int | None = None
     backup_retention_weekly: int | None = None
     backup_retention_monthly: int | None = None
+    notification_email: str | None = None
+    notification_webhook_url: str | None = None
 
 
 class ProjectOut(BaseModel):
@@ -108,6 +110,8 @@ class ProjectOut(BaseModel):
     backup_retention_daily: int = 7
     backup_retention_weekly: int = 4
     backup_retention_monthly: int = 3
+    notification_email: str | None = None
+    notification_webhook_url: str | None = None
 
     model_config = {"from_attributes": True}
 

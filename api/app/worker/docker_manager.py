@@ -40,7 +40,9 @@ class OdooContainerConfig:
     mailhog_smtp_port: int = 1025
     workers: int = 2
     init_db: bool = False      # if True, runs with -i base --stop-after-init
+    upgrade_modules: list[str] = None  # if set, runs with -u module1,module2 --stop-after-init
     custom_domain: str | None = None  # e.g. "erp.mycompany.com"
+    preferred_port: int | None = None
 
 
 class DockerManager:
@@ -57,10 +59,61 @@ class DockerManager:
     def get_container_name(self, project_slug: str, branch_name: str) -> str:
         safe_project = project_slug.replace("_", "-").lower()
         safe_branch = branch_name.replace("/", "-").replace("_", "-").lower()
-        return f"opsway-{safe_project}-{safe_branch}"
+        return f"{settings.opsway_network_prefix}-{safe_project}-{safe_branch}"
 
     def get_db_container_name(self, project_slug: str, branch_name: str) -> str:
         return f"{self.get_container_name(project_slug, branch_name)}-pg"
+
+    def get_container(self, name_or_id: str) -> Optional[Container]:
+        try:
+            return self.client.containers.get(name_or_id)
+        except NotFound:
+            return None
+
+    def get_container_host_port(self, name: str, project_slug: str, branch_name: str) -> Optional[int]:
+        """Try to find the port previously used by this container/branch."""
+        # 1. Try by name directly
+        container = self.get_container(name)
+        if container:
+            port = self._extract_port(container)
+            if port:
+                return port
+
+        # 2. Try by labels (search through stopped/older containers)
+        try:
+            filters = {
+                "label": [
+                    f"opsway.project={project_slug}",
+                    f"opsway.branch={branch_name}",
+                ]
+            }
+            # Sort by created time descending to get the most recent one
+            containers = self.client.containers.list(all=True, filters=filters)
+            if containers:
+                # Filter for those that have a port mapping
+                for c in sorted(containers, key=lambda x: x.attrs.get("Created", ""), reverse=True):
+                    port = self._extract_port(c)
+                    if port:
+                        return port
+        except Exception:
+            pass
+        return None
+
+    def _extract_port(self, container) -> Optional[int]:
+        """Extract host port from container attributes."""
+        try:
+            ports = container.attrs.get("NetworkSettings", {}).get("Ports", {}) or {}
+            # Also check HostConfig for stopped containers
+            if not ports:
+                ports = container.attrs.get("HostConfig", {}).get("PortBindings", {}) or {}
+
+            mappings = ports.get("8069/tcp")
+            if mappings:
+                return int(mappings[0].get("HostPort"))
+        except Exception:
+            pass
+        return None
+
 
     def _find_free_port(self, start=10000, end=20000) -> Optional[int]:
         """Find an available port on the host in the specified range."""
@@ -103,29 +156,19 @@ class DockerManager:
         
         return None
 
-    def _traefik_host_rule(self, project_slug: str, branch_name: str,
-                           custom_domain: str | None = None, environment: str = "development") -> str:
-        safe_branch = branch_name.replace("/", "-").replace("_", "-").lower()
-        subdomain = f"{safe_branch}--{project_slug}"
-        default_rule = f"Host(`{subdomain}.{settings.traefik_domain}`)"
+    def _public_url(self, project_slug: str, branch_name: str, custom_domain: str | None = None, environment: str = "development") -> str:
+        """Construct the public URL for a branch."""
+        if custom_domain:
+            return f"https://{custom_domain}"
         
-        if custom_domain:
-            custom_subdomain = f"Host(`{safe_branch}.{custom_domain}`)"
-            if environment == "production" and safe_branch in ("main", "master", "production"):
-                return f"({default_rule} || {custom_subdomain} || Host(`{custom_domain}`))"
-            return f"({default_rule} || {custom_subdomain})"
-        return default_rule
-
-    def _public_url(self, project_slug: str, branch_name: str,
-                    custom_domain: str | None = None, environment: str = "development") -> str:
+        safe_project = project_slug.replace("_", "-").lower()
         safe_branch = branch_name.replace("/", "-").replace("_", "-").lower()
-        if custom_domain:
-            if environment == "production" and safe_branch in ("main", "master", "production"):
-                return f"https://{custom_domain}"
-            return f"https://{safe_branch}.{custom_domain}"
-            
-        subdomain = f"{safe_branch}--{project_slug}"
-        return f"http://{subdomain}.{settings.traefik_domain}"
+        
+        # If we have a configured traefik domain (like opsway.dev)
+        if settings.traefik_domain and settings.traefik_domain != "localhost":
+            return f"https://{safe_branch}.{safe_project}.{settings.traefik_domain}"
+        
+        return f"http://{safe_branch}.{safe_project}.localhost"
 
     # ── Network ────────────────────────────────────────────────
 
@@ -190,14 +233,26 @@ class DockerManager:
 
     # ── Odoo Container ─────────────────────────────────────────
 
-    def start_odoo_container(self, config: OdooContainerConfig) -> Container:
+    def start_odoo_container(self, config: OdooContainerConfig) -> tuple[Container, int | None, str]:
         """Build and start an Odoo container for a branch."""
         name = self.get_container_name(config.project_slug, config.branch_name)
         network = self._network_name(config.project_slug)
         db_host = self.get_db_container_name(config.project_slug, config.branch_name)
         image = ODOO_VERSION_IMAGES.get(config.odoo_version, settings.odoo_image_v17)
-        # Find a free host port for NAT
-        host_port = self._find_free_port()
+        
+        # Find a host port for NAT
+        # 1. Try to reuse existing port if container already exists
+        host_port = self.get_container_host_port(name, config.project_slug, config.branch_name)
+        
+        # 2. Try preferred port if no container found
+        if not host_port and config.preferred_port:
+            host_port = config.preferred_port
+            
+        # 3. If no existing port or it's a temp run, find a new one
+        is_temp_run = config.init_db or (config.upgrade_modules and len(config.upgrade_modules) > 0)
+        if not host_port or is_temp_run:
+            host_port = self._find_free_port()
+            
         if host_port:
             url = f"http://localhost:{host_port}"
         else:
@@ -223,28 +278,23 @@ class DockerManager:
 
         # Traefik labels for auto-routing
         labels = {
-            "traefik.enable": "true",
-            f"traefik.http.routers.{name}.rule": self._traefik_host_rule(
-                config.project_slug, config.branch_name, config.custom_domain, config.environment
-            ),
-            f"traefik.http.routers.{name}.entrypoints": "web",
-            f"traefik.http.routers.{name}.service": name,
-            f"traefik.http.services.{name}.loadbalancer.server.port": "8069",
+            "opsway.managed": "true",
             "opsway.project": config.project_slug,
             "opsway.branch": config.branch_name,
             "opsway.environment": config.environment,
-            "opsway.managed": "true",
+            "opsway.type": "odoo",
+            "traefik.enable": "true",
+            f"traefik.http.routers.{name}.rule": f"Host(`{config.branch_name.replace('/', '-').replace('_', '-').lower()}.{config.project_slug.replace('_', '-').lower()}.localhost`)",
+            f"traefik.http.services.{name}.loadbalancer.server.port": "8069",
         }
-
-        # Add TLS router for custom domain (Let's Encrypt auto-provisioning)
+        
+        # Add TLS router for custom domain
         if config.custom_domain:
-            safe_branch = config.branch_name.replace("/", "-").replace("_", "-").lower()
-            hosts = [f"`{safe_branch}.{config.custom_domain}`"]
-            if config.environment == "production" and safe_branch in ("main", "master", "production"):
-                hosts.append(f"`{config.custom_domain}`")
+            hosts = [config.custom_domain]
+            if not config.custom_domain.startswith("www."):
+                hosts.append(f"www.{config.custom_domain}")
             
-            host_rule = " || ".join([f"Host({h})" for h in hosts])
-            
+            host_rule = " || ".join([f"Host(`{h}`)" for h in hosts])
             labels[f"traefik.http.routers.{name}-tls.rule"] = host_rule
             labels[f"traefik.http.routers.{name}-tls.entrypoints"] = "websecure"
             labels[f"traefik.http.routers.{name}-tls.tls.certresolver"] = "letsencrypt"
@@ -253,6 +303,11 @@ class DockerManager:
 
         # Volume mounts
         volumes = {}
+        safe_branch = config.branch_name.replace("/", "-").replace("_", "-").lower()
+        filestore_vol = f"opsway_filestore_{config.project_slug}_{safe_branch}"
+        volumes[filestore_vol] = {"bind": "/var/lib/odoo", "mode": "rw"}
+
+        # 2. Source Code Volume
         if config.repo_path:
             # If we are running in Docker-out-of-Docker (e.g. Mac/Prod), 
             # we must provide the HOST path to the Docker daemon.
@@ -268,8 +323,13 @@ class DockerManager:
 
         # Construction of the start command
         command = ["odoo", "-d", config.db_name]
+
         if config.init_db:
             command += ["-i", "base", "--stop-after-init"]
+            is_temp_run = True
+        elif config.upgrade_modules:
+            command += ["-u", ",".join(config.upgrade_modules), "--stop-after-init"]
+            is_temp_run = True
             
         container = self.client.containers.run(
             image,
@@ -279,19 +339,23 @@ class DockerManager:
             labels=labels,
             volumes=volumes,
             network=network,
-            ports={"8069/tcp": host_port} if host_port and not config.init_db else None,
+            ports={"8069/tcp": host_port} if host_port and not is_temp_run else None,
             detach=True,
-            remove=config.init_db,    # cleanup init containers immediately
-            restart_policy={"Name": "unless-stopped"} if not config.init_db else None,
+            remove=False,
+            restart_policy={"Name": "unless-stopped"} if not is_temp_run else None,
         )
 
-        if config.init_db:
-            # Wait for init to finish
+        if is_temp_run:
+            # Wait for init/upgrade to finish
             result = container.wait()
-            exit_code = result.get("StatusCode", 0)
-            if exit_code != 0:
-                raise Exception(f"Database initialization failed with exit code {exit_code}")
-            return None, None
+            logs = container.logs().decode("utf-8", errors="replace")
+            
+            # Clean up the temporary container
+            container.remove(v=True, force=True)
+            
+            if result.get("StatusCode", 0) != 0:
+                raise Exception(f"Container failed. Logs: {logs[-2000:]}")
+            return None, None, logs
 
         # Also attach to traefik network
         try:
@@ -301,7 +365,7 @@ class DockerManager:
             logger.warning(f"Could not attach to traefik_public: {e}")
 
         logger.info(f"Started Odoo container: {name} → {url}")
-        return container, host_port
+        return container, host_port, url
 
     # ── Container control ──────────────────────────────────────
 
@@ -424,3 +488,36 @@ class DockerManager:
         except Exception as e:
             logger.warning(f"Error getting stats for {container.name}: {e}")
             return {"cpu": 0, "memory": 0, "status": container.status}
+
+    def get_all_metrics_bulk(self) -> dict:
+        """Get metrics for all containers at once using docker stats CLI (takes ~2s total instead of 2s per container)."""
+        import subprocess
+        import json
+        metrics_by_name = {}
+        try:
+            result = subprocess.run(
+                ["docker", "stats", "--no-stream", "--format", "{{json .}}"],
+                capture_output=True, text=True, check=True
+            )
+            for line in result.stdout.strip().split("\n"):
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                    name = data.get("Name")
+                    if name:
+                        # CPUPerc looks like "0.02%", MemPerc looks like "1.23%"
+                        cpu_str = data.get("CPUPerc", "0%").replace("%", "")
+                        mem_str = data.get("MemPerc", "0%").replace("%", "")
+                        
+                        metrics_by_name[name] = {
+                            "cpu": round(float(cpu_str), 2) if cpu_str else 0.0,
+                            "memory": round(float(mem_str), 2) if mem_str else 0.0,
+                            "status": "running"
+                        }
+                except json.JSONDecodeError:
+                    continue
+        except Exception as e:
+            logger.warning(f"Error getting bulk stats: {e}")
+        return metrics_by_name
+

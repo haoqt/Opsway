@@ -4,8 +4,16 @@ import { Card, Button, Input } from "@/components/ui/primitives";
 import { Settings, User, Bell, Shield, Palette, Globe, Save } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { authApi } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import { useTheme } from "next-themes";
+import { useState, useEffect } from "react";
 
 export default function SettingsPage() {
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
+
   const { data: user } = useQuery({
     queryKey: ["me"],
     queryFn: () => authApi.me().then((r) => r.data),
@@ -62,9 +70,17 @@ export default function SettingsPage() {
                 <p className="text-sm font-medium text-[hsl(var(--foreground))]">Dark Mode</p>
                 <p className="text-xs text-[hsl(var(--muted-foreground))]">Toggle between light and dark themes</p>
               </div>
-              <div className="h-6 w-11 rounded-full bg-violet-600 p-1 flex justify-end">
-                <div className="h-4 w-4 rounded-full bg-white" />
-              </div>
+              {mounted && (
+                <button 
+                  onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                  className={cn(
+                    "h-6 w-11 rounded-full transition-colors duration-200 p-1 flex items-center",
+                    theme === "dark" ? "bg-violet-600 justify-end" : "bg-slate-300 dark:bg-slate-700 justify-start"
+                  )}
+                >
+                  <div className="h-4 w-4 rounded-full bg-white shadow-sm" />
+                </button>
+              )}
             </div>
           </Card>
         </section>
