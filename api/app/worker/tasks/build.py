@@ -16,6 +16,7 @@ from app.models import Build, Branch, Project, BuildStatus, EnvironmentType
 from app.worker.celery_app import celery_app
 from app.worker.docker_manager import DockerManager, OdooContainerConfig
 from app.worker.git_utils import clone_or_pull, detect_odoo_version, get_latest_commit, check_manifest_version_bump
+from app.worker.tasks.odoo_utils import clear_odoo_assets
 from app.worker.notifier import send_notification
 
 logger = logging.getLogger(__name__)
@@ -275,6 +276,8 @@ def trigger_build(self, build_id: str, branch_id: str):
                         _, _, logs = docker.start_odoo_container(init_config)
                         log(f"📝 Init Logs:\n{logs}")
                         log("✅ Database initialization complete")
+                        # Clear assets after init
+                        clear_odoo_assets(docker, pg_container.name, db_name, log)
                     except Exception as e:
                         log(f"💥 Database initialization FAILED: {e}")
                         raise e
@@ -292,6 +295,8 @@ def trigger_build(self, build_id: str, branch_id: str):
                             _, _, logs = docker.start_odoo_container(upgrade_config)
                             log(f"📝 Upgrade Logs:\n{logs}")
                             log(f"✅ Module upgrade complete: {modules_str}")
+                            # Clear assets after upgrade
+                            clear_odoo_assets(docker, pg_container.name, db_name, log)
                         except Exception as e:
                             log(f"💥 Module upgrade FAILED: {e}")
                             raise e

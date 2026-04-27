@@ -15,6 +15,7 @@ from app.models import Branch, Project, Backup, Build, BuildStatus, utcnow, Envi
 from app.worker.tasks.neutralize import neutralize_database
 from app.worker.docker_manager import DockerManager, OdooContainerConfig
 from app.worker.git_utils import get_build_dir
+from app.worker.tasks.odoo_utils import clear_odoo_assets
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -220,6 +221,9 @@ def restore_backup(backup_id: str):
                             raise Exception(f"Database restore failed: {stderr}")
                     else:
                         log("✅ Database restore completed successfully")
+                    
+                    # 4.5 Clear Assets (forcing regeneration)
+                    clear_odoo_assets(docker_mgr, pg_container_name, branch.db_name, log)
 
                 # Start Odoo again so we can use exec to restore filestore
                 log("🚀 Ensuring Odoo container exists for filestore restoration...")

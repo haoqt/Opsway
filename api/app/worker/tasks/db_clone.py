@@ -27,6 +27,7 @@ from app.models import Branch, Project, EnvironmentType, Build, BuildStatus, utc
 from app.worker.docker_manager import DockerManager, OdooContainerConfig
 from app.worker.tasks.build import SyncSession, _publish_log
 from app.worker.git_utils import get_build_dir
+from app.worker.tasks.odoo_utils import clear_odoo_assets
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -194,6 +195,9 @@ def clone_database(source_branch_id: str, target_branch_id: str):
                             raise Exception(f"Database restore failed: {stderr}")
                     else:
                         log("✅ Database restore completed successfully")
+
+                # 5.5 Clear Assets (forcing regeneration)
+                clear_odoo_assets(docker_mgr, tgt_pg, target_db, log)
 
                 # ── Step 6: Clone filestore ──────────────────────
                 src_odoo_container = docker_mgr.get_container(src_odoo)
