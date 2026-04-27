@@ -10,7 +10,7 @@ from app.core.database import get_db
 from app.models import Branch, Project, Build, BuildStatus, User, EnvironmentType
 from app.schemas import BranchCreate, BranchUpdate, BranchOut, BuildOut, MessageResponse
 from app.routers.auth import get_current_user
-from app.routers.projects import get_project_or_404
+from app.routers.projects import get_project_or_404, require_developer
 from app.worker.tasks.build import trigger_build
 from app.worker.docker_manager import DockerManager
 from app.models import Build
@@ -48,6 +48,7 @@ async def create_branch(
 ):
     """Manually register a branch (usually auto-created via webhook)."""
     project = await get_project_or_404(project_id, db, current_user)
+    await require_developer(project, db, current_user)
 
     # Production: only 1 allowed
     if data.environment == EnvironmentType.PRODUCTION:
@@ -97,6 +98,7 @@ async def update_branch(
     current_user: User = Depends(get_current_user),
 ):
     project = await get_project_or_404(project_id, db, current_user)
+    await require_developer(project, db, current_user)
     branch = await get_branch_or_404(branch_id, project.id, db)
     for field, value in data.model_dump(exclude_none=True).items():
         setattr(branch, field, value)
@@ -112,6 +114,7 @@ async def delete_branch(
     current_user: User = Depends(get_current_user),
 ):
     project = await get_project_or_404(project_id, db, current_user)
+    await require_developer(project, db, current_user)
     branch = await get_branch_or_404(branch_id, project.id, db)
 
     # Stop Docker containers
@@ -137,6 +140,7 @@ async def manual_deploy(
 ):
     """Manually trigger a build/deploy for a branch."""
     project = await get_project_or_404(project_id, db, current_user)
+    await require_developer(project, db, current_user)
     branch = await get_branch_or_404(branch_id, project.id, db)
 
     build = Build(
@@ -190,6 +194,7 @@ async def switch_branch_environment(
 ):
     """Switch a branch to any environment (Dev, Staging, Prod)."""
     project = await get_project_or_404(project_id, db, current_user)
+    await require_developer(project, db, current_user)
     branch = await get_branch_or_404(branch_id, project.id, db)
 
     # Validate target environment
@@ -234,13 +239,14 @@ async def clone_from_branch(
     current_user: User = Depends(get_current_user),
 ):
     """Clone database and filestore from source branch to target branch.
-    
+
     This is equivalent to Odoo.sh 'Clone Production → Staging':
     - pg_dump + pg_restore the database
     - Clone the filestore
     - Auto-neutralize if target is non-production (disable crons, mask mail servers)
     """
     project = await get_project_or_404(project_id, db, current_user)
+    await require_developer(project, db, current_user)
     target_branch = await get_branch_or_404(branch_id, project.id, db)
     source_branch = await get_branch_or_404(source_branch_id, project.id, db)
 
@@ -273,11 +279,12 @@ async def neutralize_branch(
     current_user: User = Depends(get_current_user),
 ):
     """Manually trigger database neutralization for a branch.
-    
+
     Disables cron jobs, redirects mail to MailHog, clears OAuth tokens.
     Typically auto-triggered after cloning, but can be run manually.
     """
     project = await get_project_or_404(project_id, db, current_user)
+    await require_developer(project, db, current_user)
     branch = await get_branch_or_404(branch_id, project.id, db)
 
     if not branch.db_name:

@@ -55,6 +55,25 @@ async def get_project_or_404(
     return project
 
 
+async def require_developer(
+    project: Project,
+    db: AsyncSession,
+    current_user: User,
+) -> None:
+    """Raise 403 if user is a VIEWER (read-only). OWNER and DEVELOPER can proceed."""
+    if current_user.is_superuser:
+        return
+    result = await db.execute(
+        select(ProjectMember).where(
+            ProjectMember.project_id == project.id,
+            ProjectMember.user_id == current_user.id,
+        )
+    )
+    member = result.scalar_one_or_none()
+    if not member or member.role == UserRole.VIEWER:
+        raise HTTPException(status_code=403, detail="Developer role required for this action")
+
+
 # ── Endpoints ──────────────────────────────────────────────────
 
 @router.get("", response_model=list[ProjectOut])
@@ -242,7 +261,7 @@ async def get_project(
     p_detail = ProjectDetail(
         **ProjectOut.model_validate(project).model_dump(),
         webhook_id=project.webhook_id,
-        webhook_url=f"{settings.webhook_base_url}/webhooks/github/{project.slug}",
+        webhook_url=f"{settings.webhook_base_url}/webhooks/{project.git_provider}/{project.slug}",
         webhook_secret=project.webhook_secret,
         deploy_key_public=project.deploy_key_public,
         branches=[BranchOut.model_validate(b) for b in branches],

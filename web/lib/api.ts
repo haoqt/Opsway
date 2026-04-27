@@ -34,10 +34,11 @@ api.interceptors.response.use(
 export const authApi = {
   login: (email: string, password: string) =>
     api.post<{ access_token: string }>("/auth/token", { email, password }),
-  register: (data: { email: string; username: string; password: string; full_name?: string }) =>
-    api.post("/auth/register", data),
   me: () => api.get("/auth/me"),
-  githubUrl: () => `${API_URL}/api/auth/github`,
+  listUsers: () => api.get("/auth/users"),
+  createUser: (data: { email: string; username: string; password: string; full_name?: string; is_superuser?: boolean }) =>
+    api.post("/auth/admin/create-user", data),
+  deleteUser: (userId: string) => api.delete(`/auth/admin/users/${userId}`),
 };
 
 export const projectsApi = {
@@ -54,6 +55,16 @@ export const projectsApi = {
   delete: (id: string) => api.delete(`/projects/${id}`),
   testConnection: (id: string) => api.post(`/projects/${id}/test-connection`),
   sync: (id: string) => api.post(`/projects/${id}/sync`),
+};
+
+export const membersApi = {
+  list: (projectId: string) => api.get(`/projects/${projectId}/members`),
+  add: (projectId: string, data: { user_id: string; role: string }) =>
+    api.post(`/projects/${projectId}/members`, data),
+  updateRole: (projectId: string, memberId: string, role: string) =>
+    api.patch(`/projects/${projectId}/members/${memberId}`, { role }),
+  remove: (projectId: string, memberId: string) =>
+    api.delete(`/projects/${projectId}/members/${memberId}`),
 };
 
 export const branchesApi = {

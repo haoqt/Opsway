@@ -15,6 +15,8 @@ volumes:
   redis_data:
   minio_data:
   traefik_certs:
+  web_nm:       # named volume for web node_modules — populated by entrypoint from Linux image
+  web_next:     # named volume for .next build cache
 
 services:
   # -------------------------------------------------------------
@@ -310,9 +312,17 @@ services:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
       - NEXT_PUBLIC_APP_ENV=development
     volumes:
-      - ./web:/app
-      - /app/node_modules
-      - /app/.next
+      # Mount only source directories — keeps /app/node_modules from the image
+      # (mounting ./web:/app causes macOS node_modules to shadow Linux binaries)
+      - ./web/app:/app/app
+      - ./web/components:/app/components
+      - ./web/lib:/app/lib
+      - ./web/public:/app/public
+      - ./web/next.config.ts:/app/next.config.ts
+      - ./web/postcss.config.mjs:/app/postcss.config.mjs
+      - ./web/eslint.config.mjs:/app/eslint.config.mjs
+      - ./web/tsconfig.json:/app/tsconfig.json
+      - web_next:/app/.next
     ports:
       - "3000:3000"
     networks:

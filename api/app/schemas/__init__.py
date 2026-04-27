@@ -52,6 +52,36 @@ class UserOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class MemberUser(BaseModel):
+    id: uuid.UUID
+    email: str
+    username: str
+    full_name: str | None
+    avatar_url: str | None
+
+    model_config = {"from_attributes": True}
+
+
+class MemberOut(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    user_id: uuid.UUID
+    role: UserRole
+    created_at: datetime
+    user: MemberUser
+
+    model_config = {"from_attributes": True}
+
+
+class MemberAdd(BaseModel):
+    user_id: uuid.UUID
+    role: UserRole = UserRole.DEVELOPER
+
+
+class MemberUpdate(BaseModel):
+    role: UserRole
+
+
 # ──────────────────────────────────────────────────────────────
 # Project
 # ──────────────────────────────────────────────────────────────

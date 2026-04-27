@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
 from app.core.database import create_tables
-from app.routers import auth, projects, branches, builds, webhooks, monitoring, stats, terminal, backups, domains
+from app.routers import auth, projects, branches, builds, webhooks, monitoring, stats, terminal, backups, domains, members
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -63,6 +63,7 @@ app.include_router(stats.router, prefix=API_PREFIX)
 app.include_router(terminal.router, prefix=API_PREFIX)
 app.include_router(backups.router, prefix=API_PREFIX)
 app.include_router(domains.router, prefix=API_PREFIX)
+app.include_router(members.router, prefix=API_PREFIX)
 app.include_router(webhooks.router)  # No /api prefix — raw webhook URL
 
 

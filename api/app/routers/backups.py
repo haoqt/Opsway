@@ -12,8 +12,8 @@ from minio.error import S3Error
 
 from app.core.database import get_db
 from app.routers.auth import get_current_user
-from app.routers.projects import get_project_or_404
-from app.models import Branch, Backup, Project, UserRole, User, ProjectMember
+from app.routers.projects import get_project_or_404, require_developer
+from app.models import Branch, Backup, Project, User
 from app.worker.tasks.backup import backup_branch, get_minio_client
 from app.core.config import get_settings
 
@@ -60,23 +60,12 @@ async def create_backup(
 ):
     """Trigger a manual backup for the branch."""
     project = await get_project_or_404(project_id, db, current_user)
-    
-    # Check for DEVELOPER or OWNER role
-    if not current_user.is_superuser:
-        member_result = await db.execute(
-            select(ProjectMember).where(
-                ProjectMember.project_id == project.id,
-                ProjectMember.user_id == current_user.id,
-            )
-        )
-        member = member_result.scalar_one_or_none()
-        if not member or member.role == UserRole.VIEWER:
-            raise HTTPException(status_code=403, detail="Developer role required")
-    
+    await require_developer(project, db, current_user)
+
     branch = await db.get(Branch, uuid.UUID(branch_id))
     if not branch:
         raise HTTPException(status_code=404, detail="Branch not found")
-        
+
     if not branch.db_name:
         raise HTTPException(status_code=400, detail="Branch has no database assigned yet")
         
@@ -106,19 +95,8 @@ async def restore_from_upload(
 ):
     """Upload an external backup file and trigger restoration."""
     project = await get_project_or_404(project_id, db, current_user)
-    
-    # Check for DEVELOPER or OWNER role
-    if not current_user.is_superuser:
-        member_result = await db.execute(
-            select(ProjectMember).where(
-                ProjectMember.project_id == project.id,
-                ProjectMember.user_id == current_user.id,
-            )
-        )
-        member = member_result.scalar_one_or_none()
-        if not member or member.role == UserRole.VIEWER:
-            raise HTTPException(status_code=403, detail="Developer role required")
-            
+    await require_developer(project, db, current_user)
+
     if not file.filename.endswith(".tar.gz"):
         raise HTTPException(status_code=400, detail="Only .tar.gz files are supported")
 
@@ -173,23 +151,12 @@ async def get_backup_download_url(
 ):
     """Get a presigned S3/MinIO URL to download the backup."""
     project = await get_project_or_404(project_id, db, current_user)
-    
-    # Check for DEVELOPER or OWNER role
-    if not current_user.is_superuser:
-        member_result = await db.execute(
-            select(ProjectMember).where(
-                ProjectMember.project_id == project.id,
-                ProjectMember.user_id == current_user.id,
-            )
-        )
-        member = member_result.scalar_one_or_none()
-        if not member or member.role == UserRole.VIEWER:
-            raise HTTPException(status_code=403, detail="Developer role required")
-    
+    await require_developer(project, db, current_user)
+
     backup = await db.get(Backup, uuid.UUID(backup_id))
     if not backup or str(backup.branch_id) != branch_id:
         raise HTTPException(status_code=404, detail="Backup not found")
-        
+
     if backup.status != "completed" or not backup.storage_path:
         raise HTTPException(status_code=400, detail="Backup is not completed or has no file")
         
@@ -227,23 +194,12 @@ async def trigger_restore(
 ):
     """Trigger a restoration of a backup."""
     project = await get_project_or_404(project_id, db, current_user)
-    
-    # Check for DEVELOPER or OWNER role
-    if not current_user.is_superuser:
-        member_result = await db.execute(
-            select(ProjectMember).where(
-                ProjectMember.project_id == project.id,
-                ProjectMember.user_id == current_user.id,
-            )
-        )
-        member = member_result.scalar_one_or_none()
-        if not member or member.role == UserRole.VIEWER:
-            raise HTTPException(status_code=403, detail="Developer role required")
-    
+    await require_developer(project, db, current_user)
+
     backup = await db.get(Backup, uuid.UUID(backup_id))
     if not backup or str(backup.branch_id) != branch_id:
         raise HTTPException(status_code=404, detail="Backup not found")
-        
+
     if backup.status != "completed":
         raise HTTPException(status_code=400, detail="Only completed backups can be restored")
         

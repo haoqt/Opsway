@@ -2,8 +2,20 @@
 import React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
-import { projectsApi, branchesApi, domainsApi, monitoringApi } from "@/lib/api";
-import { ProjectDetail, Branch, DomainVerification } from "@/lib/types";
+import {
+  DndContext,
+  DragEndEvent,
+  DragOverEvent,
+  DragOverlay,
+  DragStartEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
+  useDraggable,
+} from "@dnd-kit/core";
+import { projectsApi, branchesApi, domainsApi, monitoringApi, membersApi, authApi } from "@/lib/api";
+import { ProjectDetail, Branch, DomainVerification, ProjectMember } from "@/lib/types";
 import { Topbar } from "@/components/layout/sidebar";
 import { Card, Button, Skeleton, EmptyState } from "@/components/ui/primitives";
 import { BuildStatusBadge, EnvironmentBadge, OdooVersionBadge } from "@/components/ui/badges";
@@ -12,7 +24,7 @@ import {
   GitBranch, ExternalLink, Rocket, RefreshCw,
   GitCommit, Terminal, Layers, Play, Copy,
   CheckCircle2, AlertCircle, ChevronRight, Database, Database as DatabaseIcon,
-  Globe, Shield, ShieldCheck, Mail, Download, Trash2, Link2, Loader2
+  Globe, Shield, ShieldCheck, Mail, Download, Trash2, Link2, Loader2, Users, UserPlus, Crown
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -21,13 +33,66 @@ export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
 
-  const [activeTab, setActiveTab] = React.useState<"pipeline" | "history" | "settings">("pipeline");
+  const [activeTab, setActiveTab] = React.useState<"pipeline" | "history" | "team" | "settings">("pipeline");
+  const [draggingBranch, setDraggingBranch] = React.useState<Branch | null>(null);
+  const [overEnv, setOverEnv] = React.useState<string | null>(null);
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+
+  const { mutate: promoteBranch } = useMutation({
+    mutationFn: ({ branchId, targetEnv }: { branchId: string; targetEnv: string }) =>
+      branchesApi.promote(id, branchId, targetEnv),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["project", id] }),
+    onError: (err: any) => alert(err.response?.data?.detail || "Promotion failed"),
+  });
+
+  function handleDragStart(event: DragStartEvent) {
+    const branch = project?.branches?.find((b) => b.id === event.active.id);
+    setDraggingBranch(branch ?? null);
+  }
+
+  function handleDragOver(event: DragOverEvent) {
+    setOverEnv(event.over ? (event.over.id as string) : null);
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setDraggingBranch(null);
+    setOverEnv(null);
+    const { active, over } = event;
+    if (!over) return;
+    const targetEnv = over.id as string;
+    const branch = project?.branches?.find((b) => b.id === active.id);
+    if (!branch || branch.environment === targetEnv) return;
+    promoteBranch({ branchId: branch.id, targetEnv });
+  }
 
   const { data: project, isLoading, refetch } = useQuery({
     queryKey: ["project", id],
     queryFn: () => projectsApi.get(id).then((r) => r.data as ProjectDetail),
     refetchInterval: 10_000,
   });
+
+  const { data: me } = useQuery({
+    queryKey: ["me"],
+    queryFn: () => authApi.me().then((r) => r.data),
+    staleTime: 60_000,
+  });
+
+  const { data: members = [] } = useQuery<ProjectMember[]>({
+    queryKey: ["members", id],
+    queryFn: () => membersApi.list(id).then((r) => r.data),
+    enabled: !!project,
+    staleTime: 30_000,
+  });
+
+  // Derive current user's role in this project
+  const currentMember = members.find((m) => m.user_id === me?.id);
+  const isOwner = currentMember?.role === "owner" || !!me?.is_superuser;
+
+  // Drop back to pipeline if user lost owner access while on settings tab
+  React.useEffect(() => {
+    if (!isOwner && activeTab === "settings") setActiveTab("pipeline");
+  }, [isOwner, activeTab]);
 
   const { mutate: testConnection, isPending: isTesting } = useMutation({
     mutationFn: () => projectsApi.testConnection(id),
@@ -81,18 +146,26 @@ export default function ProjectDetailPage() {
               icon={<Layers size={14} />}
               label="Pipeline"
             />
-            <TabButton 
-              active={activeTab === "history"} 
+            <TabButton
+              active={activeTab === "history"}
               onClick={() => setActiveTab("history")}
               icon={<RefreshCw size={14} />}
               label="History"
             />
-            <TabButton 
-              active={activeTab === "settings"} 
-              onClick={() => setActiveTab("settings")}
-              icon={<Play size={14} />}
-              label="Settings"
+            <TabButton
+              active={activeTab === "team"}
+              onClick={() => setActiveTab("team")}
+              icon={<Users size={14} />}
+              label="Team"
             />
+            {isOwner && (
+              <TabButton
+                active={activeTab === "settings"}
+                onClick={() => setActiveTab("settings")}
+                icon={<Play size={14} />}
+                label="Settings"
+              />
+            )}
           </div>
         </div>
 
@@ -107,39 +180,59 @@ export default function ProjectDetailPage() {
                 </span>
               </div>
 
-              {/* Branches pipeline — 3 columns */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start h-full">
-                <BranchColumn
-                  title="Development"
-                  description="Active features & sandboxes"
-                  environment="development"
-                  branches={devBranches}
-                  allBranches={project.branches ?? []}
-                  projectId={id}
-                  projectSlug={project.slug}
-                  onRefresh={() => qc.invalidateQueries({ queryKey: ["project", id] })}
-                />
-                <BranchColumn
-                  title="Staging"
-                  description="Testing with production data"
-                  environment="staging"
-                  branches={stagingBranches}
-                  allBranches={project.branches ?? []}
-                  projectId={id}
-                  projectSlug={project.slug}
-                  onRefresh={() => qc.invalidateQueries({ queryKey: ["project", id] })}
-                />
-                <BranchColumn
-                  title="Production"
-                  description="Live customer environments"
-                  environment="production"
-                  branches={prodBranches}
-                  allBranches={project.branches ?? []}
-                  projectId={id}
-                  projectSlug={project.slug}
-                  onRefresh={() => qc.invalidateQueries({ queryKey: ["project", id] })}
-                />
-              </div>
+              {/* Branches pipeline — 3 columns with drag-and-drop */}
+              <DndContext
+                sensors={sensors}
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDragEnd={handleDragEnd}
+              >
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start h-full">
+                  <BranchColumn
+                    title="Development"
+                    description="Active features & sandboxes"
+                    environment="development"
+                    branches={devBranches}
+                    allBranches={project.branches ?? []}
+                    projectId={id}
+                    projectSlug={project.slug}
+                    isDropTarget={overEnv === "development"}
+                    onRefresh={() => qc.invalidateQueries({ queryKey: ["project", id] })}
+                  />
+                  <BranchColumn
+                    title="Staging"
+                    description="Testing with production data"
+                    environment="staging"
+                    branches={stagingBranches}
+                    allBranches={project.branches ?? []}
+                    projectId={id}
+                    projectSlug={project.slug}
+                    isDropTarget={overEnv === "staging"}
+                    onRefresh={() => qc.invalidateQueries({ queryKey: ["project", id] })}
+                  />
+                  <BranchColumn
+                    title="Production"
+                    description="Live customer environments"
+                    environment="production"
+                    branches={prodBranches}
+                    allBranches={project.branches ?? []}
+                    projectId={id}
+                    projectSlug={project.slug}
+                    isDropTarget={overEnv === "production"}
+                    onRefresh={() => qc.invalidateQueries({ queryKey: ["project", id] })}
+                  />
+                </div>
+                <DragOverlay>
+                  {draggingBranch && (
+                    <div className="rounded-xl border border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--card))] p-3 shadow-2xl opacity-90 w-64">
+                      <div className="flex items-center gap-2">
+                        <GitBranch size={14} className="text-[hsl(var(--primary))]" />
+                        <span className="text-sm font-bold truncate">{draggingBranch.name}</span>
+                      </div>
+                    </div>
+                  )}
+                </DragOverlay>
+              </DndContext>
             </>
           )}
 
@@ -184,7 +277,11 @@ export default function ProjectDetailPage() {
             </div>
           )}
 
-          {activeTab === "settings" && (
+          {activeTab === "team" && (
+            <TeamTab projectId={id} />
+          )}
+
+          {activeTab === "settings" && isOwner && (
             <div className="max-w-4xl space-y-6">
               {/* Git Integration & Manual Webhook */}
               <Card className="p-4 space-y-4 shadow-sm border-[hsl(var(--border))]">
@@ -339,7 +436,7 @@ function TabButton({ active, onClick, icon, label }: { active: boolean; onClick:
 // ── Branch Column ──────────────────────────────────────────────
 
 function BranchColumn({
-  title, description, environment, branches, allBranches, projectId, projectSlug, onRefresh,
+  title, description, environment, branches, allBranches, projectId, projectSlug, isDropTarget, onRefresh,
 }: {
   title: string;
   description: string;
@@ -348,8 +445,10 @@ function BranchColumn({
   allBranches: Branch[];
   projectId: string;
   projectSlug: string;
+  isDropTarget: boolean;
   onRefresh: () => void;
 }) {
+  const { setNodeRef } = useDroppable({ id: environment });
   const envThemes = {
     development: {
       border: "border-violet-500/30",
@@ -380,12 +479,16 @@ function BranchColumn({
   const theme = envThemes[environment];
 
   return (
-    <div className={cn(
-      "flex flex-col h-full rounded-2xl border transition-all duration-300",
-      theme.border,
-      theme.bg,
-      theme.glow
-    )}>
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "flex flex-col h-full rounded-2xl border transition-all duration-300",
+        theme.border,
+        theme.bg,
+        theme.glow,
+        isDropTarget && "ring-2 ring-[hsl(var(--primary)/0.6)] ring-offset-1 ring-offset-background scale-[1.01]"
+      )}
+    >
       {/* Column Header */}
       <div className={cn("p-4 border-b border-inherit rounded-t-2xl", theme.headerBg)}>
         <div className="flex items-center justify-between mb-1">
@@ -443,6 +546,7 @@ function BranchCard({
   onRefresh: () => void;
   themeColor: string;
 }) {
+  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id: branch.id });
   const [showCloneMenu, setShowCloneMenu] = React.useState(false);
   const [cloneSourceId, setCloneSourceId] = React.useState("");
 
@@ -470,7 +574,16 @@ function BranchCard({
   const isFailed = branch.current_task_status === "failed";
   
   return (
-    <div className="group relative rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] overflow-hidden hover:border-[hsl(var(--primary)/0.4)] hover:shadow-xl hover:shadow-[hsl(var(--primary)/0.05)] transition-all duration-300">
+    <div
+      ref={setDragRef}
+      {...listeners}
+      {...attributes}
+      className={cn(
+        "group relative rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] overflow-hidden hover:border-[hsl(var(--primary)/0.4)] hover:shadow-xl hover:shadow-[hsl(var(--primary)/0.05)] transition-all duration-300",
+        isDragging && "opacity-40 scale-95"
+      )}
+      style={{ cursor: isDragging ? "grabbing" : "grab" }}
+    >
       {/* Left Accent Bar */}
       <div className={cn("absolute left-0 top-0 bottom-0 w-1", themeColor)} />
 
@@ -733,6 +846,268 @@ function BranchCard({
           </Link>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Team Tab ───────────────────────────────────────────────────
+
+const ROLE_LABELS: Record<string, { label: string; color: string }> = {
+  owner:     { label: "Owner",     color: "text-amber-400 bg-amber-500/10 border-amber-500/20" },
+  developer: { label: "Developer", color: "text-violet-400 bg-violet-500/10 border-violet-500/20" },
+  viewer:    { label: "Viewer",    color: "text-slate-400 bg-slate-500/10 border-slate-500/20" },
+};
+
+function TeamTab({ projectId }: { projectId: string }) {
+  const qc = useQueryClient();
+  const [showAdd, setShowAdd] = React.useState(false);
+  const [addUserId, setAddUserId] = React.useState("");
+  const [addRole, setAddRole] = React.useState("developer");
+  const [addError, setAddError] = React.useState("");
+
+  const { data: me } = useQuery({
+    queryKey: ["me"],
+    queryFn: () => authApi.me().then((r) => r.data),
+  });
+
+  const { data: members = [], isLoading } = useQuery<ProjectMember[]>({
+    queryKey: ["members", projectId],
+    queryFn: () => membersApi.list(projectId).then((r) => r.data),
+  });
+
+  const { data: allUsers = [] } = useQuery<{ id: string; username: string; email: string }[]>({
+    queryKey: ["users"],
+    queryFn: () => authApi.listUsers().then((r) => r.data),
+    enabled: showAdd,
+  });
+
+  const currentMember = members.find((m) => m.user_id === me?.id);
+  const isOwner = currentMember?.role === "owner" || me?.is_superuser;
+
+  const availableUsers = allUsers.filter(
+    (u) => !members.some((m) => m.user_id === u.id)
+  );
+
+  const { mutate: addMember, isPending: isAdding } = useMutation({
+    mutationFn: () => membersApi.add(projectId, { user_id: addUserId, role: addRole }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["members", projectId] });
+      setShowAdd(false);
+      setAddUserId("");
+      setAddRole("developer");
+      setAddError("");
+    },
+    onError: (err: any) => setAddError(err.response?.data?.detail || "Failed to add member"),
+  });
+
+  const { mutate: updateRole } = useMutation({
+    mutationFn: ({ memberId, role }: { memberId: string; role: string }) =>
+      membersApi.updateRole(projectId, memberId, role),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["members", projectId] }),
+    onError: (err: any) => alert(err.response?.data?.detail || "Failed to update role"),
+  });
+
+  const { mutate: removeMember } = useMutation({
+    mutationFn: (memberId: string) => membersApi.remove(projectId, memberId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["members", projectId] }),
+    onError: (err: any) => alert(err.response?.data?.detail || "Failed to remove member"),
+  });
+
+  return (
+    <div className="max-w-2xl space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-bold text-[hsl(var(--foreground))]">Project Team</h3>
+          <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">
+            {members.length} member{members.length !== 1 ? "s" : ""} · Permissions apply to all branches and data
+          </p>
+        </div>
+        {isOwner && (
+          <Button
+            variant="primary"
+            size="sm"
+            className="h-8 text-xs gap-1.5"
+            onClick={() => { setShowAdd(!showAdd); setAddError(""); }}
+          >
+            <UserPlus size={13} /> Add Member
+          </Button>
+        )}
+      </div>
+
+      {/* Role legend */}
+      <div className="flex flex-wrap gap-3">
+        {Object.entries(ROLE_LABELS).map(([key, { label, color }]) => (
+          <div key={key} className={cn("flex items-center gap-1.5 text-[10px] font-bold uppercase px-2.5 py-1 rounded-full border", color)}>
+            {key === "owner" && <Crown size={9} />}
+            {key === "developer" && <Shield size={9} />}
+            {label}
+            <span className="font-normal text-[hsl(var(--muted-foreground))] ml-0.5">
+              {key === "owner" && "· full access"}
+              {key === "developer" && "· deploy & backup"}
+              {key === "viewer" && "· read-only"}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Add member form */}
+      {showAdd && isOwner && (
+        <Card className="p-4 space-y-3 border-violet-500/20 bg-violet-500/[0.02]">
+          <p className="text-xs font-bold text-[hsl(var(--foreground))] uppercase tracking-wider flex items-center gap-1.5">
+            <UserPlus size={12} className="text-violet-400" /> Add Member
+          </p>
+          <div className="flex gap-2">
+            <select
+              className="flex-1 bg-[hsl(var(--background))] border border-[hsl(var(--border))] rounded-lg px-3 py-2 text-xs text-[hsl(var(--foreground))] focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
+              value={addUserId}
+              onChange={(e) => setAddUserId(e.target.value)}
+            >
+              <option value="" disabled>Select user to add...</option>
+              {availableUsers.map((u) => (
+                <option key={u.id} value={u.id}>{u.username} ({u.email})</option>
+              ))}
+            </select>
+            <select
+              className="w-36 bg-[hsl(var(--background))] border border-[hsl(var(--border))] rounded-lg px-3 py-2 text-xs text-[hsl(var(--foreground))] focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
+              value={addRole}
+              onChange={(e) => setAddRole(e.target.value)}
+            >
+              <option value="developer">Developer</option>
+              <option value="viewer">Viewer</option>
+            </select>
+          </div>
+          {addError && (
+            <p className="text-xs text-red-400 flex items-center gap-1.5">
+              <AlertCircle size={11} /> {addError}
+            </p>
+          )}
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" size="sm" className="h-7 text-[10px]" onClick={() => { setShowAdd(false); setAddError(""); }}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              className="h-7 text-[10px] gap-1"
+              loading={isAdding}
+              disabled={!addUserId}
+              onClick={() => addMember()}
+            >
+              <UserPlus size={11} /> Add
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {/* Members list */}
+      <Card className="overflow-hidden">
+        {isLoading ? (
+          <div className="p-6 text-center text-xs text-[hsl(var(--muted-foreground))]">Loading…</div>
+        ) : members.length === 0 ? (
+          <div className="p-8 text-center opacity-40">
+            <Users size={24} className="mx-auto mb-2 stroke-1" />
+            <p className="text-xs font-bold uppercase tracking-tight">No members yet</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-[hsl(var(--border))]">
+            {members.map((m) => {
+              const roleInfo = ROLE_LABELS[m.role] ?? ROLE_LABELS.viewer;
+              const isSelf = m.user_id === me?.id;
+              return (
+                <div key={m.id} className="flex items-center gap-3 px-4 py-3 hover:bg-[hsl(var(--secondary)/0.3)] transition-colors">
+                  {/* Avatar */}
+                  <div className="h-9 w-9 rounded-full bg-gradient-to-br from-violet-500/30 to-cyan-500/30 flex items-center justify-center text-xs font-bold shrink-0 border border-[hsl(var(--border))]">
+                    {m.user.username.slice(0, 2).toUpperCase()}
+                  </div>
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold">{m.user.username}</span>
+                      {isSelf && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">You</span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-[hsl(var(--muted-foreground))] truncate">{m.user.email}</p>
+                  </div>
+                  {/* Role selector or badge */}
+                  {isOwner && !isSelf && m.role !== "owner" ? (
+                    <select
+                      value={m.role}
+                      onChange={(e) => updateRole({ memberId: m.id, role: e.target.value })}
+                      className={cn(
+                        "text-[10px] font-bold uppercase px-2 py-1 rounded-full border bg-transparent cursor-pointer focus:outline-none",
+                        roleInfo.color
+                      )}
+                    >
+                      <option value="developer">Developer</option>
+                      <option value="viewer">Viewer</option>
+                    </select>
+                  ) : (
+                    <span className={cn("text-[10px] font-bold uppercase px-2.5 py-1 rounded-full border flex items-center gap-1", roleInfo.color)}>
+                      {m.role === "owner" && <Crown size={8} />}
+                      {roleInfo.label}
+                    </span>
+                  )}
+                  {/* Remove */}
+                  {isOwner && !isSelf && m.role !== "owner" && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 text-[hsl(var(--muted-foreground))] hover:text-red-400 hover:bg-red-400/10 shrink-0"
+                      title="Remove from project"
+                      onClick={() => {
+                        if (confirm(`Remove ${m.user.username} from this project?`)) removeMember(m.id);
+                      }}
+                    >
+                      <Trash2 size={12} />
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+      {/* Permission matrix */}
+      <Card className="p-4 space-y-3">
+        <h4 className="text-[11px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))]">Permission Matrix</h4>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-[10px] text-[hsl(var(--muted-foreground))] uppercase tracking-wider">
+                <th className="text-left py-1.5 pr-4 font-bold">Action</th>
+                <th className="text-center px-3 py-1.5 font-bold text-amber-400">Owner</th>
+                <th className="text-center px-3 py-1.5 font-bold text-violet-400">Developer</th>
+                <th className="text-center px-3 py-1.5 font-bold text-slate-400">Viewer</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[hsl(var(--border)/0.5)]">
+              {[
+                { action: "View branches & builds",   owner: true,  dev: true,  viewer: true  },
+                { action: "Trigger manual deploy",     owner: true,  dev: true,  viewer: false },
+                { action: "Create / delete branch",    owner: true,  dev: true,  viewer: false },
+                { action: "Clone database",            owner: true,  dev: true,  viewer: false },
+                { action: "Restore backup",            owner: true,  dev: true,  viewer: false },
+                { action: "Neutralize database",       owner: true,  dev: true,  viewer: false },
+                { action: "Create manual backup",      owner: true,  dev: true,  viewer: false },
+                { action: "Promote branch (env)",      owner: true,  dev: true,  viewer: false },
+                { action: "Edit project settings",     owner: true,  dev: false, viewer: false },
+                { action: "Manage team members",       owner: true,  dev: false, viewer: false },
+                { action: "Delete project",            owner: true,  dev: false, viewer: false },
+              ].map(({ action, owner, dev, viewer }) => (
+                <tr key={action} className="hover:bg-[hsl(var(--secondary)/0.2)]">
+                  <td className="py-1.5 pr-4 text-[hsl(var(--foreground))]">{action}</td>
+                  <td className="text-center px-3 py-1.5">{owner ? <CheckCircle2 size={13} className="mx-auto text-emerald-400" /> : <span className="text-[hsl(var(--muted-foreground))] text-[10px]">—</span>}</td>
+                  <td className="text-center px-3 py-1.5">{dev ? <CheckCircle2 size={13} className="mx-auto text-emerald-400" /> : <span className="text-[hsl(var(--muted-foreground))] text-[10px]">—</span>}</td>
+                  <td className="text-center px-3 py-1.5">{viewer ? <CheckCircle2 size={13} className="mx-auto text-emerald-400" /> : <span className="text-[hsl(var(--muted-foreground))] text-[10px]">—</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
     </div>
   );
 }

@@ -57,11 +57,9 @@ async def init_accounts():
     
     logger = logging.getLogger(__name__)
     
-    # Safely clean up in case of weird multiline docker injections
     raw_accounts = str(settings.initial_accounts).strip().replace("\\n", "\n")
-    # Split by comma or newline if user stacked them
     import re
-    accounts = [x for x in re.split(r'[,\\n]+', raw_accounts) if x.strip()]
+    accounts = [x.strip() for x in re.split(r'[,\n]+', raw_accounts) if x.strip()]
     
     async with AsyncSessionLocal() as session:
         for acc in accounts:

@@ -2,14 +2,16 @@ FROM node:20-alpine AS base
 
 # ── Dependencies ──────────────────────────────────────────────
 FROM base AS deps
-RUN apk add --no-cache libc6-compat
+RUN apk add --no-cache libc6-compat python3 make g++
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci
+RUN npm ci --include=optional
 
 # ── Development ───────────────────────────────────────────────
 FROM base AS development
 WORKDIR /app
+# node_modules lives here in the image — docker-compose mounts only source dirs,
+# so this stays intact (no macOS override)
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 EXPOSE 3000
