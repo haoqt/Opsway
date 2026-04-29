@@ -33,6 +33,7 @@ celery_app.conf.update(
         "app.worker.tasks.backup.*": {"queue": "default"},
         "app.worker.tasks.restore.*": {"queue": "default"},
         "app.worker.tasks.cleanup.*": {"queue": "default"},
+        "app.worker.tasks.uptime.*": {"queue": "default"},
     },
     task_acks_late=True,
     worker_prefetch_multiplier=1,

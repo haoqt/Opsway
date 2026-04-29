@@ -7,6 +7,7 @@ import urllib.request
 import urllib.error
 from datetime import datetime, timezone
 
+import docker as docker_sdk
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -15,6 +16,27 @@ from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+def _resolve_check_url(container_url: str, container_name: str | None) -> str:
+    """
+    Workers run inside Docker and cannot reach host-mapped ports via localhost.
+    When container_url is http://localhost:PORT, use Docker SDK to get the
+    container's internal IP and probe port 8069 directly.
+    """
+    if not container_url.startswith("http://localhost:") or not container_name:
+        return container_url
+    try:
+        client = docker_sdk.from_env()
+        container = client.containers.get(container_name)
+        networks = container.attrs.get("NetworkSettings", {}).get("Networks", {})
+        for net_info in networks.values():
+            ip = net_info.get("IPAddress", "")
+            if ip:
+                return f"http://{ip}:8069"
+    except Exception as e:
+        logger.warning(f"Could not resolve internal IP for {container_name}: {e}")
+    return container_url
 
 sync_engine = create_engine(
     settings.database_url.replace("+asyncpg", "+psycopg2"),
@@ -58,13 +80,14 @@ def check_branch_uptime(branch_id: str):
         previous_status = branch.uptime_status
 
         # HTTP check
+        check_url = _resolve_check_url(branch.container_url, branch.container_name)
         start = datetime.now(timezone.utc)
         response_ms = None
         error_msg = None
         new_status = UptimeStatus.UNKNOWN
 
         try:
-            req = urllib.request.Request(branch.container_url, method="GET")
+            req = urllib.request.Request(check_url, method="GET")
             with urllib.request.urlopen(req, timeout=10) as resp:
                 elapsed = (datetime.now(timezone.utc) - start).total_seconds()
                 response_ms = int(elapsed * 1000)
