@@ -50,6 +50,8 @@ export const projectsApi = {
     git_provider?: string;
     odoo_version?: string;
     description?: string;
+    gitlab_token?: string;
+    gitlab_url?: string;
   }) => api.post("/projects", data),
   update: (id: string, data: object) => api.patch(`/projects/${id}`, data),
   delete: (id: string) => api.delete(`/projects/${id}`),
@@ -65,6 +67,13 @@ export const membersApi = {
     api.patch(`/projects/${projectId}/members/${memberId}`, { role }),
   remove: (projectId: string, memberId: string) =>
     api.delete(`/projects/${projectId}/members/${memberId}`),
+  transferOwnership: (projectId: string, newOwnerUserId: string) =>
+    api.post(`/projects/${projectId}/members/transfer-ownership`, { new_owner_user_id: newOwnerUserId }),
+};
+
+export const uptimeApi = {
+  getProjectUptime: (projectId: string) => api.get(`/uptime/projects/${projectId}`),
+  getBranchHistory: (branchId: string) => api.get(`/uptime/branches/${branchId}/history`),
 };
 
 export const branchesApi = {

@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional, Any
 from pydantic import BaseModel, EmailStr, Field
 
-from app.models import GitProvider, EnvironmentType, BuildStatus, UserRole
+from app.models import GitProvider, EnvironmentType, BuildStatus, UserRole, UptimeStatus
 
 
 # ──────────────────────────────────────────────────────────────
@@ -96,6 +96,8 @@ class ProjectCreate(BaseModel):
     build_limit_dev: int = 5
     build_limit_staging: int = 2
     build_limit_production: int = 1
+    gitlab_token: str | None = None
+    gitlab_url: str | None = None
 
 
 class ProjectUpdate(BaseModel):
@@ -113,6 +115,11 @@ class ProjectUpdate(BaseModel):
     backup_retention_monthly: int | None = None
     notification_email: str | None = None
     notification_webhook_url: str | None = None
+    notification_slack_url: str | None = None
+    notification_telegram_bot_token: str | None = None
+    notification_telegram_chat_id: str | None = None
+    gitlab_token: str | None = None
+    gitlab_url: str | None = None
 
 
 class ProjectOut(BaseModel):
@@ -142,6 +149,10 @@ class ProjectOut(BaseModel):
     backup_retention_monthly: int = 3
     notification_email: str | None = None
     notification_webhook_url: str | None = None
+    notification_slack_url: str | None = None
+    notification_telegram_bot_token: str | None = None
+    notification_telegram_chat_id: str | None = None
+    gitlab_url: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -190,6 +201,9 @@ class BranchOut(BaseModel):
     cloned_from_branch_id: uuid.UUID | None = None
     current_task: str | None = None
     current_task_status: str | None = None
+    uptime_status: UptimeStatus = UptimeStatus.UNKNOWN
+    uptime_last_checked_at: datetime | None = None
+    uptime_response_ms: int | None = None
     last_commit_sha: str | None
     last_commit_message: str | None
     last_commit_author: str | None
@@ -279,3 +293,18 @@ class DomainVerification(BaseModel):
     verified: bool
     cname_target: str  # e.g. "branch--project.localhost"
     message: str | None = None
+
+
+class UptimeCheckOut(BaseModel):
+    id: uuid.UUID
+    branch_id: uuid.UUID
+    status: UptimeStatus
+    response_ms: int | None
+    error: str | None
+    checked_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class TransferOwnershipRequest(BaseModel):
+    new_owner_user_id: uuid.UUID

@@ -1,7 +1,7 @@
 "use client";
 import React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   DndContext,
   DragEndEvent,
@@ -14,7 +14,7 @@ import {
   useDroppable,
   useDraggable,
 } from "@dnd-kit/core";
-import { projectsApi, branchesApi, domainsApi, monitoringApi, membersApi, authApi } from "@/lib/api";
+import { projectsApi, branchesApi, domainsApi, monitoringApi, membersApi, authApi, uptimeApi } from "@/lib/api";
 import { ProjectDetail, Branch, DomainVerification, ProjectMember } from "@/lib/types";
 import { Topbar } from "@/components/layout/sidebar";
 import { Card, Button, Skeleton, EmptyState } from "@/components/ui/primitives";
@@ -24,7 +24,7 @@ import {
   GitBranch, ExternalLink, Rocket, RefreshCw,
   GitCommit, Terminal, Layers, Play, Copy,
   CheckCircle2, AlertCircle, ChevronRight, Database, Database as DatabaseIcon,
-  Globe, Shield, ShieldCheck, Mail, Download, Trash2, Link2, Loader2, Users, UserPlus, Crown
+  Globe, Shield, ShieldCheck, Mail, Download, Trash2, Link2, Loader2, Users, UserPlus, Crown, Activity
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -356,6 +356,11 @@ export default function ProjectDetailPage() {
                   )}
                 </div>
 
+                {/* GitLab token update */}
+                {project.git_provider === "gitlab" && (
+                  <GitLabTokenSettings project={project} projectId={id} />
+                )}
+
                 <div className="pt-4 mt-4 border-t border-[hsl(var(--border))] space-y-4">
                   <h4 className="text-xs font-bold text-[hsl(var(--muted-foreground))] uppercase tracking-wider">Build Limits (Automated Cleanup)</h4>
                   <div className="grid grid-cols-3 gap-6">
@@ -407,6 +412,12 @@ export default function ProjectDetailPage() {
 
               {/* Custom Domains */}
               <CustomDomainsSettings project={project} projectId={id} />
+
+              {/* Transfer Ownership */}
+              <TransferOwnershipSettings projectId={id} members={members} currentUserId={me?.id} />
+
+              {/* Delete Project */}
+              <DeleteProjectSettings projectId={id} projectName={project.name} />
             </div>
           )}
         </div>
@@ -590,6 +601,16 @@ function BranchCard({
       <div className="p-4">
         {/* Status Dot (Absolute) */}
         <div className="absolute top-4 right-4 flex flex-col items-end gap-2">
+          {/* Uptime indicator */}
+          {isRunning && (
+            <div className="flex items-center gap-1" title={`Uptime: ${branch.uptime_status}${branch.uptime_response_ms ? ` · ${branch.uptime_response_ms}ms` : ""}`}>
+              <span className={`h-2 w-2 rounded-full ${
+                branch.uptime_status === "up" ? "bg-emerald-400" :
+                branch.uptime_status === "down" ? "bg-red-500 animate-pulse" :
+                "bg-zinc-500"
+              }`} />
+            </div>
+          )}
           {isBusy ? (
             <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20">
               <Loader2 size={10} className="animate-spin text-blue-400" />
@@ -744,6 +765,11 @@ function BranchCard({
                  <Button variant="outline" size="sm" className="h-8 w-8 p-0" title="Backups">
                   <Database size={13} />
                  </Button>
+              </Link>
+              <Link href={`/projects/${projectId}/branches/${branch.id}/uptime`}>
+                <Button variant="outline" size="sm" className={`h-8 w-8 p-0 ${branch.uptime_status === "down" ? "border-red-500/40 text-red-400" : ""}`} title="Uptime Monitor">
+                  <Activity size={13} />
+                </Button>
               </Link>
             </div>
           </div>
@@ -1344,12 +1370,18 @@ function NotificationSettings({ project, projectId }: { project: ProjectDetail; 
   const qc = useQueryClient();
   const [email, setEmail] = React.useState(project.notification_email || "");
   const [webhookUrl, setWebhookUrl] = React.useState(project.notification_webhook_url || "");
+  const [slackUrl, setSlackUrl] = React.useState(project.notification_slack_url || "");
+  const [tgToken, setTgToken] = React.useState(project.notification_telegram_bot_token || "");
+  const [tgChatId, setTgChatId] = React.useState(project.notification_telegram_chat_id || "");
   const [saved, setSaved] = React.useState(false);
 
   const handleSave = () => {
     projectsApi.update(projectId, {
       notification_email: email.trim() || null,
       notification_webhook_url: webhookUrl.trim() || null,
+      notification_slack_url: slackUrl.trim() || null,
+      notification_telegram_bot_token: tgToken.trim() || null,
+      notification_telegram_chat_id: tgChatId.trim() || null,
     }).then(() => {
       qc.invalidateQueries({ queryKey: ["project", projectId] });
       setSaved(true);
@@ -1365,12 +1397,12 @@ function NotificationSettings({ project, projectId }: { project: ProjectDetail; 
           Notifications
         </h3>
         <span className="text-[9px] px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-400 font-bold">
-          Build Events
+          Build &amp; Uptime Events
         </span>
       </div>
 
       <p className="text-[10px] text-[hsl(var(--muted-foreground))] leading-relaxed">
-        Get notified when builds start, succeed, or fail. Supports email and/or custom webhooks (Slack, Discord, etc).
+        Get notified on build and uptime events. Supports Email, Webhook, Slack, and Telegram.
       </p>
 
       <div className="space-y-3">
@@ -1389,15 +1421,55 @@ function NotificationSettings({ project, projectId }: { project: ProjectDetail; 
 
         <div>
           <label className="text-[10px] font-bold uppercase text-[hsl(var(--muted-foreground))] block mb-1">
-            Webhook URL <span className="text-[8px] normal-case font-normal">(Slack, Discord, or any HTTP endpoint)</span>
+            Webhook URL <span className="text-[8px] normal-case font-normal">(any HTTP endpoint)</span>
+          </label>
+          <input
+            type="url"
+            placeholder="https://example.com/hooks/opsway"
+            className="w-full bg-black/20 border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
+            value={webhookUrl}
+            onChange={(e) => setWebhookUrl(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="text-[10px] font-bold uppercase text-[hsl(var(--muted-foreground))] block mb-1">
+            Slack Incoming Webhook
           </label>
           <input
             type="url"
             placeholder="https://hooks.slack.com/services/..."
             className="w-full bg-black/20 border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
-            value={webhookUrl}
-            onChange={(e) => setWebhookUrl(e.target.value)}
+            value={slackUrl}
+            onChange={(e) => setSlackUrl(e.target.value)}
           />
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[10px] font-bold uppercase text-[hsl(var(--muted-foreground))] block mb-1">
+              Telegram Bot Token
+            </label>
+            <input
+              type="password"
+              placeholder="123456:ABC-..."
+              className="w-full bg-black/20 border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
+              value={tgToken}
+              onChange={(e) => setTgToken(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold uppercase text-[hsl(var(--muted-foreground))] block mb-1">
+              Telegram Chat ID
+            </label>
+            <input
+              type="text"
+              placeholder="-100xxxxxxxxxx"
+              className="w-full bg-black/20 border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
+              value={tgChatId}
+              onChange={(e) => setTgChatId(e.target.value)}
+            />
+          </div>
         </div>
 
         <div className="flex items-center gap-2 pt-1">
@@ -1408,9 +1480,9 @@ function NotificationSettings({ project, projectId }: { project: ProjectDetail; 
           >
             {saved ? <><CheckCircle2 size={12} className="mr-1.5" /> Saved!</> : "Save Notifications"}
           </Button>
-          {(email || webhookUrl) && (
+          {(email || webhookUrl || slackUrl || (tgToken && tgChatId)) && (
             <p className="text-[9px] text-[hsl(var(--muted-foreground))]">
-              Notifications active for: {[email && "Email", webhookUrl && "Webhook"].filter(Boolean).join(", ")}
+              Active: {[email && "Email", webhookUrl && "Webhook", slackUrl && "Slack", (tgToken && tgChatId) && "Telegram"].filter(Boolean).join(", ")}
             </p>
           )}
         </div>
@@ -1423,6 +1495,8 @@ function NotificationSettings({ project, projectId }: { project: ProjectDetail; 
             { label: "🚀 Build Started", color: "text-blue-400 bg-blue-500/10 border-blue-500/20" },
             { label: "✅ Build Succeeded", color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" },
             { label: "❌ Build Failed", color: "text-red-400 bg-red-500/10 border-red-500/20" },
+            { label: "🔴 Uptime Down", color: "text-red-400 bg-red-500/10 border-red-500/20" },
+            { label: "🟢 Uptime Recovered", color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" },
           ].map(({ label, color }) => (
             <span key={label} className={`text-[9px] font-semibold px-2 py-0.5 rounded-full border ${color}`}>
               {label}
@@ -1434,3 +1508,226 @@ function NotificationSettings({ project, projectId }: { project: ProjectDetail; 
   );
 }
 
+
+// ── GitLab Token Settings ──────────────────────────────────────
+
+function GitLabTokenSettings({ project, projectId }: { project: ProjectDetail; projectId: string }) {
+  const qc = useQueryClient();
+  const [token, setToken] = React.useState("");
+  const [gitlabUrl, setGitlabUrl] = React.useState(project.gitlab_url ?? "");
+  const [saved, setSaved] = React.useState(false);
+
+  const handleSave = () => {
+    const payload: Record<string, string | null> = {
+      gitlab_url: gitlabUrl.trim() || null,
+    };
+    if (token.trim()) payload.gitlab_token = token.trim();
+    projectsApi.update(projectId, payload).then(() => {
+      qc.invalidateQueries({ queryKey: ["project", projectId] });
+      setToken("");
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    });
+  };
+
+  return (
+    <div className="pt-4 mt-4 border-t border-[hsl(var(--border))] space-y-3">
+      <h4 className="text-[10px] font-bold uppercase text-[hsl(var(--muted-foreground))] tracking-wider flex items-center gap-1.5">
+        <Shield size={10} />
+        GitLab Configuration
+      </h4>
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[10px] text-[hsl(var(--muted-foreground))]">
+          GitLab URL <span className="opacity-60">(leave blank for gitlab.com)</span>
+        </label>
+        <input
+          type="url"
+          placeholder="https://gitlab.mycompany.com"
+          className="w-full bg-black/20 border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
+          value={gitlabUrl}
+          onChange={(e) => setGitlabUrl(e.target.value)}
+        />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[10px] text-[hsl(var(--muted-foreground))]">
+          API Token <span className="opacity-60">(fill to update — requires <code className="text-[10px]">api</code> scope)</span>
+        </label>
+        <input
+          type="password"
+          placeholder="glpat-xxxxxxxxxxxxxxxxxxxx"
+          className="w-full bg-black/20 border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+        />
+      </div>
+      <Button size="sm" className="h-8 text-[11px] font-bold px-4" onClick={handleSave}>
+        {saved ? <><CheckCircle2 size={12} className="mr-1" /> Saved!</> : "Save GitLab Settings"}
+      </Button>
+    </div>
+  );
+}
+
+
+// ── Transfer Ownership ─────────────────────────────────────────
+
+function DeleteProjectSettings({ projectId, projectName }: { projectId: string; projectName: string }) {
+  const router = useRouter();
+  const qc = useQueryClient();
+  const [confirmName, setConfirmName] = React.useState("");
+  const [open, setOpen] = React.useState(false);
+
+  const { mutate, isPending } = useMutation({
+    mutationFn: () => projectsApi.delete(projectId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      router.push("/");
+    },
+  });
+
+  return (
+    <Card className="border-red-500/30 bg-red-500/5 p-4 mt-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h4 className="text-[10px] font-bold uppercase text-red-400 tracking-wider flex items-center gap-1.5">
+          <Trash2 size={10} />
+          Delete Project
+        </h4>
+        <span className="text-[9px] px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 font-bold border border-red-500/20">
+          Irreversible
+        </span>
+      </div>
+      <p className="text-[10px] text-[hsl(var(--muted-foreground))]">
+        Permanently deletes the project, all branches, builds, and backups. This cannot be undone.
+      </p>
+
+      {!open ? (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 text-[11px] text-red-400 border-red-500/30 hover:bg-red-500/10"
+          onClick={() => setOpen(true)}
+        >
+          <Trash2 size={12} className="mr-1.5" /> Delete Project…
+        </Button>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-[10px] text-red-400">
+            Type <span className="font-bold font-mono">{projectName}</span> to confirm:
+          </p>
+          <input
+            autoFocus
+            className="w-full bg-black/20 border border-red-500/40 rounded px-3 py-1.5 text-xs focus:outline-none focus:border-red-500"
+            placeholder={projectName}
+            value={confirmName}
+            onChange={(e) => setConfirmName(e.target.value)}
+          />
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              className="h-7 text-[10px] bg-red-600 hover:bg-red-700 text-white"
+              disabled={confirmName !== projectName}
+              loading={isPending}
+              onClick={() => mutate()}
+            >
+              Delete Project
+            </Button>
+            <Button variant="ghost" size="sm" className="h-7 text-[10px]" onClick={() => { setOpen(false); setConfirmName(""); }}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+
+function TransferOwnershipSettings({
+  projectId, members, currentUserId,
+}: { projectId: string; members: ProjectMember[]; currentUserId?: string }) {
+  const qc = useQueryClient();
+  const [selectedUserId, setSelectedUserId] = React.useState("");
+  const [confirming, setConfirming] = React.useState(false);
+
+  const nonOwnerMembers = members.filter((m) => m.role !== "owner" && m.user_id !== currentUserId);
+
+  const { mutate: transfer, isPending } = useMutation({
+    mutationFn: () => membersApi.transferOwnership(projectId, selectedUserId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["members", projectId] });
+      qc.invalidateQueries({ queryKey: ["me"] });
+      setConfirming(false);
+      setSelectedUserId("");
+    },
+    onError: (err: any) => alert(err.response?.data?.detail || "Transfer failed"),
+  });
+
+  return (
+    <Card className="p-4 space-y-4 shadow-sm border-red-500/20">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] flex items-center gap-2">
+          <Crown size={12} />
+          Transfer Ownership
+        </h3>
+        <span className="text-[9px] px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 font-bold border border-red-500/20">
+          Danger Zone
+        </span>
+      </div>
+
+      <p className="text-[10px] text-[hsl(var(--muted-foreground))] leading-relaxed">
+        Transfer project ownership to another member. You will become a Developer and lose owner privileges.
+      </p>
+
+      {nonOwnerMembers.length === 0 ? (
+        <p className="text-[10px] text-[hsl(var(--muted-foreground))] italic">No other members to transfer ownership to. Add a member first.</p>
+      ) : (
+        <div className="space-y-3">
+          <select
+            className="w-full bg-black/20 border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
+            value={selectedUserId}
+            onChange={(e) => { setSelectedUserId(e.target.value); setConfirming(false); }}
+          >
+            <option value="">Select new owner…</option>
+            {nonOwnerMembers.map((m) => (
+              <option key={m.user_id} value={m.user_id}>
+                {m.user.full_name || m.user.username} ({m.user.email}) — {m.role}
+              </option>
+            ))}
+          </select>
+
+          {selectedUserId && !confirming && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-[11px] text-red-400 border-red-500/30 hover:bg-red-500/10"
+              onClick={() => setConfirming(true)}
+            >
+              Transfer Ownership
+            </Button>
+          )}
+
+          {confirming && (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 space-y-2">
+              <p className="text-[11px] font-semibold text-red-400">
+                Transfer to <strong>{nonOwnerMembers.find((m) => m.user_id === selectedUserId)?.user.username}</strong>?
+                You will become a Developer and cannot undo this without their help.
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className="h-7 text-[10px] bg-red-600 hover:bg-red-700 text-white"
+                  loading={isPending}
+                  onClick={() => transfer()}
+                >
+                  Confirm Transfer
+                </Button>
+                <Button variant="ghost" size="sm" className="h-7 text-[10px]" onClick={() => setConfirming(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}

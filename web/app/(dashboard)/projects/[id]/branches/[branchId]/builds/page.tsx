@@ -7,7 +7,7 @@ import { Topbar } from "@/components/layout/sidebar";
 import { Card, Skeleton, EmptyState } from "@/components/ui/primitives";
 import { BuildStatusBadge } from "@/components/ui/badges";
 import { formatTimeAgo, formatDuration, shortSha } from "@/lib/utils";
-import { Rocket, GitCommit, Clock, User, ChevronRight, RotateCcw } from "lucide-react";
+import { Rocket, GitCommit, Clock, User, ChevronRight, RotateCcw, CheckCircle2, XCircle, FlaskConical } from "lucide-react";
 import Link from "next/link";
 import { buildsApi } from "@/lib/api";
 
@@ -87,8 +87,20 @@ export default function BranchBuildsPage() {
                       </div>
                       
                       {build.test_passed !== null && (
-                        <span className={`text-xs ${build.test_passed ? "text-emerald-400" : "text-red-400"}`}>
-                          {build.test_passed ? `✅ ${build.test_count ?? 0} tests` : "❌ Tests failed"}
+                        <span className={`flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border ${
+                          build.test_passed
+                            ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                            : "text-red-400 bg-red-500/10 border-red-500/20"
+                        }`}>
+                          {build.test_passed
+                            ? <><CheckCircle2 size={10} /> {build.test_count ?? 0} tests passed</>
+                            : <><XCircle size={10} /> Tests failed</>
+                          }
+                        </span>
+                      )}
+                      {build.test_passed === null && (build.status === "success" || build.status === "failed") && (
+                        <span className="flex items-center gap-1 text-[10px] text-zinc-500">
+                          <FlaskConical size={10} /> no tests
                         </span>
                       )}
 

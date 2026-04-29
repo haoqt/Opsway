@@ -152,26 +152,40 @@ def trigger_build(self, build_id: str, branch_id: str):
                 build_info={"commit_sha": build.commit_sha, "commit_message": build.commit_message},
                 notification_email=project.notification_email,
                 notification_webhook_url=project.notification_webhook_url,
+                notification_slack_url=project.notification_slack_url,
+                notification_telegram_bot_token=project.notification_telegram_bot_token,
+                notification_telegram_chat_id=project.notification_telegram_chat_id,
             )
     
             try:
                 # ── Step 2: Clone / pull repo ─────────────────────
                 log("📥 Cloning/pulling repository...")
-                if project.deploy_key_private:
-                    repo_url = f"git@github.com:{project.repo_full_name}.git"
+                key_path = None
+                if project.git_provider.value == "gitlab":
+                    gl_base = (project.gitlab_url or "https://gitlab.com").rstrip("/")
+                    if project.gitlab_token:
+                        # HTTPS with token auth — no deploy key needed
+                        from urllib.parse import urlparse
+                        parsed = urlparse(gl_base)
+                        repo_url = f"{parsed.scheme}://oauth2:{project.gitlab_token}@{parsed.netloc}/{project.repo_full_name}.git"
+                    elif project.deploy_key_private:
+                        host = gl_base.replace("https://", "").replace("http://", "")
+                        repo_url = f"git@{host}:{project.repo_full_name}.git"
+                    else:
+                        repo_url = f"{gl_base}/{project.repo_full_name}.git"
                 else:
-                    repo_url = f"https://github.com/{project.repo_full_name}.git"
-    
-                if project.deploy_key_private:
-                    # Write deploy key to temp file
+                    if project.deploy_key_private:
+                        repo_url = f"git@github.com:{project.repo_full_name}.git"
+                    else:
+                        repo_url = f"https://github.com/{project.repo_full_name}.git"
+
+                if not project.gitlab_token and project.deploy_key_private:
                     key_path = f"/tmp/deploy_key_{project.id}"
                     with open(key_path, "w") as f:
                         f.write(project.deploy_key_private)
                     import os
                     os.chmod(key_path, 0o600)
-                else:
-                    key_path = None
-    
+
                 repo, local_path = clone_or_pull(
                     repo_url=repo_url,
                     project_slug=project.slug,
@@ -393,6 +407,9 @@ def trigger_build(self, build_id: str, branch_id: str):
                     },
                     notification_email=project.notification_email,
                     notification_webhook_url=project.notification_webhook_url,
+                    notification_slack_url=project.notification_slack_url,
+                    notification_telegram_bot_token=project.notification_telegram_bot_token,
+                    notification_telegram_chat_id=project.notification_telegram_chat_id,
                 )
     
                 # Clean up old container if rollback preparation occurred
@@ -430,6 +447,9 @@ def trigger_build(self, build_id: str, branch_id: str):
                     },
                     notification_email=project.notification_email,
                     notification_webhook_url=project.notification_webhook_url,
+                    notification_slack_url=project.notification_slack_url,
+                    notification_telegram_bot_token=project.notification_telegram_bot_token,
+                    notification_telegram_chat_id=project.notification_telegram_chat_id,
                 )
                 # Execute Rollback if applicable
                 if 'old_container_id' in locals() and old_container_id:

@@ -26,7 +26,6 @@ def utcnow():
 class GitProvider(str, enum.Enum):
     GITHUB = "github"
     GITLAB = "gitlab"
-    GITEA = "gitea"
 
 
 class EnvironmentType(str, enum.Enum):
@@ -47,6 +46,12 @@ class UserRole(str, enum.Enum):
     OWNER = "owner"
     DEVELOPER = "developer"
     VIEWER = "viewer"
+
+
+class UptimeStatus(str, enum.Enum):
+    UP = "up"
+    DOWN = "down"
+    UNKNOWN = "unknown"
 
 
 # ──────────────────────────────────────────────────────────────
@@ -133,9 +138,18 @@ class Project(Base):
     backup_retention_weekly: Mapped[int] = mapped_column(Integer, default=4)
     backup_retention_monthly: Mapped[int] = mapped_column(Integer, default=3)
 
+    # Git tokens (for webhook auto-registration)
+    gitlab_token: Mapped[str | None] = mapped_column(Text)
+    gitlab_url: Mapped[str | None] = mapped_column(String(512))  # e.g. https://gitlab.mycompany.com
+
     # Notifications (Phase 2)
-    notification_email: Mapped[str | None] = mapped_column(String(255))  # email to notify on build events
-    notification_webhook_url: Mapped[str | None] = mapped_column(String(512))  # generic webhook URL
+    notification_email: Mapped[str | None] = mapped_column(String(255))
+    notification_webhook_url: Mapped[str | None] = mapped_column(String(512))
+
+    # Notifications (Phase 3) — Slack & Telegram
+    notification_slack_url: Mapped[str | None] = mapped_column(String(512))
+    notification_telegram_bot_token: Mapped[str | None] = mapped_column(String(255))
+    notification_telegram_chat_id: Mapped[str | None] = mapped_column(String(100))
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -214,6 +228,14 @@ class Branch(Base):
     # Active Operations (Cloning, Building, Neutralizing, etc)
     current_task: Mapped[str | None] = mapped_column(String(50))
     current_task_status: Mapped[str | None] = mapped_column(String(50))  # pending, running, failed
+
+    # Uptime monitoring (Phase 3)
+    uptime_status: Mapped[UptimeStatus] = mapped_column(
+        Enum(UptimeStatus, native_enum=False, values_callable=lambda x: [m.value for m in x]),
+        default=UptimeStatus.UNKNOWN, nullable=False
+    )
+    uptime_last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    uptime_response_ms: Mapped[int | None] = mapped_column(Integer)
 
     # Last deploy
     last_commit_sha: Mapped[str | None] = mapped_column(String(40))
@@ -297,3 +319,22 @@ class Backup(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+# ──────────────────────────────────────────────────────────────
+# UptimeCheck
+# ──────────────────────────────────────────────────────────────
+
+class UptimeCheck(Base):
+    __tablename__ = "uptime_checks"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    branch_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("branches.id", ondelete="CASCADE"), index=True)
+
+    status: Mapped[UptimeStatus] = mapped_column(
+        Enum(UptimeStatus, native_enum=False, values_callable=lambda x: [m.value for m in x]),
+        nullable=False
+    )
+    response_ms: Mapped[int | None] = mapped_column(Integer)
+    error: Mapped[str | None] = mapped_column(String(500))
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

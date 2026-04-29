@@ -1,7 +1,8 @@
-export type GitProvider = "github" | "gitlab" | "gitea";
+export type GitProvider = "github" | "gitlab";
 export type EnvironmentType = "development" | "staging" | "production";
 export type BuildStatus = "pending" | "building" | "success" | "failed" | "cancelled";
 export type UserRole = "owner" | "developer" | "viewer";
+export type UptimeStatus = "up" | "down" | "unknown";
 
 export interface ProjectMember {
   id: string;
@@ -55,6 +56,12 @@ export interface Project {
   backup_retention_daily: number;
   backup_retention_weekly: number;
   backup_retention_monthly: number;
+  notification_email: string | null;
+  notification_webhook_url: string | null;
+  notification_slack_url: string | null;
+  notification_telegram_bot_token: string | null;
+  notification_telegram_chat_id: string | null;
+  gitlab_url: string | null;
 }
 
 export interface ProjectDetail extends Project {
@@ -82,6 +89,9 @@ export interface Branch {
   cloned_from_branch_id: string | null;
   current_task: string | null;
   current_task_status: string | null;
+  uptime_status: UptimeStatus;
+  uptime_last_checked_at: string | null;
+  uptime_response_ms: number | null;
   last_commit_sha: string | null;
   last_commit_message: string | null;
   last_commit_author: string | null;
@@ -125,4 +135,13 @@ export interface DomainVerification {
   verified: boolean;
   cname_target: string;
   message: string | null;
+}
+
+export interface UptimeCheck {
+  id: string;
+  branch_id: string;
+  status: UptimeStatus;
+  response_ms: number | null;
+  error: string | null;
+  checked_at: string;
 }

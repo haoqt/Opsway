@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.models import Project, ProjectMember, User, UserRole
-from app.schemas import MemberOut, MemberAdd, MemberUpdate, MessageResponse
+from app.schemas import MemberOut, MemberAdd, MemberUpdate, MessageResponse, TransferOwnershipRequest
 from app.routers.auth import get_current_user
 from app.routers.projects import get_project_or_404
 
@@ -158,3 +158,36 @@ async def remove_member(
     await db.delete(member)
     await db.flush()
     return {"message": "Member removed from project"}
+
+
+@router.post("/transfer-ownership", response_model=MessageResponse)
+async def transfer_ownership(
+    project_id: str,
+    data: TransferOwnershipRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    project = await get_project_or_404(project_id, db, current_user)
+    caller_member = await require_owner(project, db, current_user)
+
+    if str(data.new_owner_user_id) == str(current_user.id):
+        raise HTTPException(status_code=400, detail="You are already the owner")
+
+    # Verify the target is an existing member
+    result = await db.execute(
+        select(ProjectMember).options(selectinload(ProjectMember.user)).where(
+            ProjectMember.project_id == project.id,
+            ProjectMember.user_id == data.new_owner_user_id,
+        )
+    )
+    new_owner_member = result.scalar_one_or_none()
+    if not new_owner_member:
+        raise HTTPException(status_code=404, detail="Target user is not a member of this project")
+
+    # Atomic swap: new owner → OWNER, caller → DEVELOPER
+    new_owner_member.role = UserRole.OWNER
+    if caller_member:
+        caller_member.role = UserRole.DEVELOPER
+    await db.flush()
+
+    return {"message": f"Ownership transferred to {new_owner_member.user.username}"}

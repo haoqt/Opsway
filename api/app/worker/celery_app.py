@@ -18,6 +18,7 @@ celery_app = Celery(
         "app.worker.tasks.repo",
         "app.worker.tasks.db_clone",
         "app.worker.tasks.neutralize",
+        "app.worker.tasks.uptime",
     ],
 )
 
@@ -45,6 +46,10 @@ celery_app.conf.update(
         "daily-backup": {
             "task": "app.worker.tasks.backup.run_daily_backups",
             "schedule": 86400.0,  # Every 24h
+        },
+        "check-uptime": {
+            "task": "app.worker.tasks.uptime.check_all_uptime",
+            "schedule": 60.0,  # Every 60s
         },
     },
 )

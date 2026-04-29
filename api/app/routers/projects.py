@@ -26,8 +26,17 @@ def slugify(name: str) -> str:
     return slug[:50]
 
 
-def get_repo_ssh_url(repo_full_name: str) -> str:
-    """Convert owner/repo to git@github.com:owner/repo.git"""
+def get_gitlab_base(gitlab_url: str | None) -> str:
+    """Return gitlab base URL without trailing slash. Defaults to gitlab.com."""
+    if gitlab_url:
+        return gitlab_url.rstrip("/")
+    return "https://gitlab.com"
+
+
+def get_repo_ssh_url(repo_full_name: str, provider: str = "github", gitlab_url: str | None = None) -> str:
+    if provider == "gitlab":
+        host = gitlab_url.rstrip("/").replace("https://", "").replace("http://", "") if gitlab_url else "gitlab.com"
+        return f"git@{host}:{repo_full_name}.git"
     return f"git@github.com:{repo_full_name}.git"
 
 
@@ -129,11 +138,12 @@ async def create_project(
     current_user: User = Depends(get_current_user),
 ):
     """Connect a GitHub repository as a new project."""
-    # Parse owner/repo
-    parts = data.repo_full_name.split("/")
-    if len(parts) != 2:
+    # Parse owner/repo (GitLab supports subgroups: group/subgroup/repo)
+    parts = data.repo_full_name.strip("/").split("/")
+    if len(parts) < 2:
         raise HTTPException(status_code=400, detail="repo_full_name must be in 'owner/repo' format")
-    owner, repo_name = parts
+    owner = "/".join(parts[:-1])
+    repo_name = parts[-1]
 
     # Check if already connected
     result = await db.execute(
@@ -145,19 +155,35 @@ async def create_project(
     if result.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Repository already connected")
 
-    # Fetch repo info from GitHub
-    repo_url = f"https://github.com/{data.repo_full_name}"
-    gh_id = None
-    if current_user.github_token:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                f"https://api.github.com/repos/{data.repo_full_name}",
-                headers={"Authorization": f"Bearer {current_user.github_token}"},
-            )
-            if resp.status_code == 200:
-                gh_data = resp.json()
-                repo_url = gh_data.get("clone_url", repo_url)
-                gh_id = str(gh_data.get("id"))
+    # Fetch repo info from provider
+    if data.git_provider.value == "gitlab":
+        base = get_gitlab_base(data.gitlab_url)
+        repo_url = f"{base}/{data.repo_full_name}"
+        gh_id = None
+        if data.gitlab_token:
+            encoded = data.repo_full_name.replace("/", "%2F")
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    f"{base}/api/v4/projects/{encoded}",
+                    headers={"PRIVATE-TOKEN": data.gitlab_token},
+                )
+                if resp.status_code == 200:
+                    gl_data = resp.json()
+                    repo_url = gl_data.get("http_url_to_repo", repo_url)
+                    gh_id = str(gl_data.get("id"))
+    else:
+        repo_url = f"https://github.com/{data.repo_full_name}"
+        gh_id = None
+        if current_user.github_token:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    f"https://api.github.com/repos/{data.repo_full_name}",
+                    headers={"Authorization": f"Bearer {current_user.github_token}"},
+                )
+                if resp.status_code == 200:
+                    gh_data = resp.json()
+                    repo_url = gh_data.get("clone_url", repo_url)
+                    gh_id = str(gh_data.get("id"))
 
     # Generate unique slug
     base_slug = slugify(data.name)
@@ -187,6 +213,8 @@ async def create_project(
         deploy_key_private=private_key,
         odoo_version=data.odoo_version,
         custom_addons_path=data.custom_addons_path,
+        gitlab_token=data.gitlab_token if data.git_provider.value == "gitlab" else None,
+        gitlab_url=data.gitlab_url if data.git_provider.value == "gitlab" else None,
     )
     db.add(project)
     await db.flush()
@@ -200,8 +228,10 @@ async def create_project(
     db.add(member)
     await db.flush()
 
-    # Register GitHub webhook
-    if current_user.github_token:
+    # Register webhook
+    if data.git_provider.value == "gitlab" and data.gitlab_token:
+        await _register_gitlab_webhook(project, data.gitlab_token)
+    elif data.git_provider.value == "github" and current_user.github_token:
         await _register_github_webhook(project, current_user.github_token)
 
     return project
@@ -390,13 +420,60 @@ async def delete_project(
     current_user: User = Depends(get_current_user),
 ):
     project = await get_project_or_404(project_id, db, current_user)
-    # Soft delete
-    project.is_active = False
+    # Owner-only: check role
+    if not current_user.is_superuser:
+        member = await db.execute(
+            select(ProjectMember).where(
+                ProjectMember.project_id == project.id,
+                ProjectMember.user_id == current_user.id,
+            )
+        )
+        m = member.scalar_one_or_none()
+        if not m or m.role != UserRole.OWNER:
+            raise HTTPException(status_code=403, detail="Only project owners can delete the project")
+    # Clean up GitLab webhook
+    if project.git_provider.value == "gitlab" and project.gitlab_token and project.webhook_id:
+        try:
+            await _delete_gitlab_webhook(project)
+        except Exception:
+            pass
+    project_name = project.name
+    await db.delete(project)
     await db.flush()
-    return {"message": f"Project '{project.name}' deactivated"}
+    return {"message": f"Project '{project_name}' deleted"}
 
 
 # ── Internal helpers ───────────────────────────────────────────
+
+async def _register_gitlab_webhook(project: Project, gitlab_token: str):
+    webhook_url = f"{settings.webhook_base_url}/webhooks/gitlab/{project.slug}"
+    encoded = project.repo_full_name.replace("/", "%2F")
+    base = get_gitlab_base(project.gitlab_url)
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{base}/api/v4/projects/{encoded}/hooks",
+            headers={"PRIVATE-TOKEN": gitlab_token},
+            json={
+                "url": webhook_url,
+                "push_events": True,
+                "tag_push_events": True,
+                "token": project.webhook_secret,
+                "enable_ssl_verification": True,
+            },
+        )
+        if resp.status_code == 201:
+            project.webhook_id = str(resp.json().get("id"))
+
+
+async def _delete_gitlab_webhook(project: Project):
+    encoded = project.repo_full_name.replace("/", "%2F")
+    base = get_gitlab_base(project.gitlab_url)
+    async with httpx.AsyncClient() as client:
+        await client.delete(
+            f"{base}/api/v4/projects/{encoded}/hooks/{project.webhook_id}",
+            headers={"PRIVATE-TOKEN": project.gitlab_token},
+        )
+
 
 async def _register_github_webhook(project: Project, github_token: str):
     webhook_url = f"{settings.webhook_base_url}/webhooks/github/{project.slug}"
