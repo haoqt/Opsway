@@ -76,6 +76,18 @@ export const uptimeApi = {
   getBranchHistory: (branchId: string) => api.get(`/uptime/branches/${branchId}/history`),
 };
 
+export const ciConfigApi = {
+  getAll: (projectId: string) => api.get(`/projects/${projectId}/ci-config`),
+  saveFile: (projectId: string, filename: string, content: string) =>
+    api.put(`/projects/${projectId}/ci-config/files/${encodeURIComponent(filename)}`, { content }),
+  resetFile: (projectId: string, filename: string) =>
+    api.delete(`/projects/${projectId}/ci-config/files/${encodeURIComponent(filename)}`),
+  downloadFile: (projectId: string, filename: string) =>
+    api.get(`/projects/${projectId}/ci-config/files/${encodeURIComponent(filename)}`, {
+      responseType: "text",
+    }),
+};
+
 export const branchesApi = {
   list: (projectId: string) => api.get(`/projects/${projectId}/branches`),
   get: (projectId: string, branchId: string) =>

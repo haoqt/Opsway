@@ -28,9 +28,10 @@ export default function BuildDetailPage() {
     refetchInterval: 5000,
   });
 
-  // SSE log streaming
+  // SSE log streaming — reset logs on every buildId change
   useEffect(() => {
     if (!buildId) return;
+    setLogs([]);
     const url = buildsApi.logsUrl(buildId);
     const source = new EventSource(url);
     setIsStreaming(true);
@@ -172,8 +173,6 @@ export default function BuildDetailPage() {
             )}
           </MetaCard>
         </div>
-        
-        <BuildTimeline status={build.status} className="px-4" />
 
         {/* Error banner */}
         {build.error_message && (
@@ -183,57 +182,70 @@ export default function BuildDetailPage() {
           </div>
         )}
 
-        {/* Log viewer */}
-        <div className="flex-1 flex flex-col min-h-0 rounded-xl border border-[hsl(var(--border))] bg-[#0d1117] overflow-hidden">
-          {/* Log toolbar */}
-          <div className="flex items-center gap-2 border-b border-[hsl(var(--border))] bg-[#161b22] px-4 py-2">
-            <Terminal size={13} className="text-[hsl(var(--muted-foreground))]" />
-            <span className="text-xs text-[hsl(var(--muted-foreground))]">Build Output</span>
-            {isStreaming && (
-              <span className="flex items-center gap-1.5 text-[11px] text-blue-400">
-                <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />
-                Live
-              </span>
-            )}
-            <div className="ml-auto flex items-center gap-1.5">
-              <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-[hsl(var(--muted-foreground))]">
-                <input
-                  type="checkbox"
-                  checked={autoScroll}
-                  onChange={(e) => setAutoScroll(e.target.checked)}
-                  className="h-3 w-3 accent-[hsl(var(--primary))]"
-                />
-                Auto-scroll
-              </label>
-              <button
-                onClick={downloadLogs}
-                className="flex items-center gap-1 rounded px-2 py-1 text-[10px] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--secondary))] transition-colors"
-              >
-                <Download size={10} /> Download
-              </button>
+        {/* Main content: log (2/3) + pipeline (1/3) */}
+        <div className="flex-1 min-h-0 flex gap-4">
+          {/* Build Output — 2/3 */}
+          <div className="flex-[2] min-w-0 flex flex-col rounded-xl border border-[hsl(var(--border))] bg-[#0d1117] overflow-hidden">
+            {/* Log toolbar */}
+            <div className="flex items-center gap-2 border-b border-[hsl(var(--border))] bg-[#161b22] px-4 py-2">
+              <Terminal size={13} className="text-[hsl(var(--muted-foreground))]" />
+              <span className="text-xs text-[hsl(var(--muted-foreground))]">Build Output</span>
+              {isStreaming && (
+                <span className="flex items-center gap-1.5 text-[11px] text-blue-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />
+                  Live
+                </span>
+              )}
+              <div className="ml-auto flex items-center gap-1.5">
+                <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-[hsl(var(--muted-foreground))]">
+                  <input
+                    type="checkbox"
+                    checked={autoScroll}
+                    onChange={(e) => setAutoScroll(e.target.checked)}
+                    className="h-3 w-3 accent-[hsl(var(--primary))]"
+                  />
+                  Auto-scroll
+                </label>
+                <button
+                  onClick={downloadLogs}
+                  className="flex items-center gap-1 rounded px-2 py-1 text-[10px] text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--secondary))] transition-colors"
+                >
+                  <Download size={10} /> Download
+                </button>
+              </div>
+            </div>
+
+            {/* Log content */}
+            <div
+              ref={logRef}
+              className="flex-1 overflow-y-auto px-4 py-3 space-y-0.5"
+              onScroll={(e) => {
+                const el = e.currentTarget;
+                const atBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 50;
+                setAutoScroll(atBottom);
+              }}
+            >
+              {logs.length === 0 ? (
+                <div className="flex items-center gap-2 text-xs text-zinc-600">
+                  <div className="h-3.5 w-3.5 animate-spin rounded-full border border-zinc-600 border-t-zinc-400" />
+                  Waiting for build output…
+                </div>
+              ) : (
+                logs.map((line, i) => (
+                  <LogLine key={i} line={line} index={i} />
+                ))
+              )}
             </div>
           </div>
 
-          {/* Log content */}
-          <div
-            ref={logRef}
-            className="flex-1 overflow-y-auto px-4 py-3 space-y-0.5"
-            onScroll={(e) => {
-              const el = e.currentTarget;
-              const atBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 50;
-              setAutoScroll(atBottom);
-            }}
-          >
-            {logs.length === 0 ? (
-              <div className="flex items-center gap-2 text-xs text-zinc-600">
-                <div className="h-3.5 w-3.5 animate-spin rounded-full border border-zinc-600 border-t-zinc-400" />
-                Waiting for build output…
-              </div>
-            ) : (
-              logs.map((line, i) => (
-                <LogLine key={i} line={line} index={i} />
-              ))
-            )}
+          {/* Pipeline — 1/3 */}
+          <div className="flex-[1] min-w-0 flex flex-col rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] overflow-hidden">
+            <div className="flex items-center gap-2 border-b border-[hsl(var(--border))] px-4 py-2">
+              <span className="text-xs text-[hsl(var(--muted-foreground))]">Pipeline</span>
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 py-3">
+              <BuildTimeline status={build.status} logs={logs} />
+            </div>
           </div>
         </div>
       </div>

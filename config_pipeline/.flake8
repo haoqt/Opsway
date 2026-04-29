@@ -1,0 +1,9 @@
+[flake8]
+max-line-length = 120
+max-complexity = 20
+# B = bugbear
+# B9 = bugbear opinionated (incl line length)
+select = C,E,F,W,B,B9
+ignore = E203,E501,W503,E128,C901
+per-file-ignores=
+    __init__.py:F401

@@ -1,0 +1,56 @@
+version: "1"
+
+# Stages executed by Opsway on each build, in order.
+# Remove a stage name to skip all jobs in that stage.
+stages:
+  - code_quality
+  - deploy
+  - tests
+
+# ── Code Quality ───────────────────────────────────────────────────────────────
+# Runs pre-commit hooks inside an isolated Python container before deploy.
+# 'allow_failure: true' means lint issues are logged but do not block the build.
+code_quality:
+  stage: code_quality
+  image: python:3.11
+  script:
+    - pip install pre-commit --quiet
+    - pre-commit run --all-files --config .pre-commit-config.yml
+  allow_failure: true
+
+# ── Deploy ─────────────────────────────────────────────────────────────────────
+# 'trigger: opsway' — Opsway manages the full container lifecycle (postgres +
+# odoo, DB init/upgrade, healthcheck, rollback) via Docker SDK.
+# 'compose_file' tells Opsway which docker-compose.yml to read for image & network config.
+deploy_development:
+  stage: deploy
+  trigger: opsway
+  environment: development
+  compose_file: docker-compose.yml
+  when: auto
+
+deploy_staging:
+  stage: deploy
+  trigger: opsway
+  environment: staging
+  compose_file: docker-compose.yml
+  when: auto
+
+deploy_production:
+  stage: deploy
+  trigger: opsway
+  environment: production
+  compose_file: docker-compose.yml
+  when: manual                   # requires a manual trigger from the Opsway UI
+
+# ── Tests ──────────────────────────────────────────────────────────────────────
+# 'exec_in: odoo' — script runs via docker exec inside the running Odoo container.
+# Only executes for development environment branches.
+tests:
+  stage: tests
+  exec_in: odoo
+  script:
+    - odoo --test-enable --test-tags at_install --stop-after-init -d ${DB_NAME} --db_host ${DB_HOST}
+  allow_failure: true
+  only:
+    - development

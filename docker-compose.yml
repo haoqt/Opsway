@@ -179,6 +179,7 @@ services:
       - WEBHOOK_BASE_URL=${WEBHOOK_BASE_URL:-http://localhost:8000}
       - BUILD_WORKSPACE=${BUILD_WORKSPACE:-/app/builds}
       - HOST_BUILD_WORKSPACE=${HOST_BUILD_WORKSPACE}
+      - PYTHONPATH=/app
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./builds:/app/builds

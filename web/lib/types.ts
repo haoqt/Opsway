@@ -145,3 +145,22 @@ export interface UptimeCheck {
   error: string | null;
   checked_at: string;
 }
+
+export const CI_FILENAMES = [
+  ".opsway.yml",
+  "docker-compose.yml",
+  "odoo.conf.template",
+  ".flake8",
+  ".pre-commit-config.yml",
+  ".pylintrc",
+  ".pylintrc-mandatory",
+] as const;
+
+export type CIFilename = typeof CI_FILENAMES[number];
+
+export interface CIFiles {
+  id: string;
+  project_id: string;
+  files: Record<string, string>;
+  updated_at: string;
+}

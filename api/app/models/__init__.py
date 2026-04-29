@@ -158,6 +158,9 @@ class Project(Base):
     # Relationships
     branches: Mapped[list["Branch"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     members: Mapped[list["ProjectMember"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    ci_config: Mapped["ProjectCIConfig | None"] = relationship(
+        back_populates="project", cascade="all, delete-orphan", uselist=False
+    )
 
     __table_args__ = (
         UniqueConstraint("git_provider", "repo_full_name", name="uq_project_repo"),
@@ -319,6 +322,24 @@ class Backup(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+# ──────────────────────────────────────────────────────────────
+# ProjectCIConfig
+# ──────────────────────────────────────────────────────────────
+
+class ProjectCIConfig(Base):
+    __tablename__ = "project_ci_configs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), unique=True, index=True, nullable=False
+    )
+    config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    project: Mapped["Project"] = relationship(back_populates="ci_config")
 
 
 # ──────────────────────────────────────────────────────────────

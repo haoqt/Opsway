@@ -308,3 +308,16 @@ class UptimeCheckOut(BaseModel):
 
 class TransferOwnershipRequest(BaseModel):
     new_owner_user_id: uuid.UUID
+
+
+class CIFilesOut(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    files: dict  # {filename: content_string}
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class CIFileUpdate(BaseModel):
+    content: str

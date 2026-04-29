@@ -14,7 +14,8 @@ import {
   useDroppable,
   useDraggable,
 } from "@dnd-kit/core";
-import { projectsApi, branchesApi, domainsApi, monitoringApi, membersApi, authApi, uptimeApi } from "@/lib/api";
+import { projectsApi, branchesApi, domainsApi, monitoringApi, membersApi, authApi, uptimeApi, ciConfigApi } from "@/lib/api";
+import { CIConfigSettings } from "@/components/projects/ci-config-settings";
 import { ProjectDetail, Branch, DomainVerification, ProjectMember } from "@/lib/types";
 import { Topbar } from "@/components/layout/sidebar";
 import { Card, Button, Skeleton, EmptyState } from "@/components/ui/primitives";
@@ -412,6 +413,9 @@ export default function ProjectDetailPage() {
 
               {/* Custom Domains */}
               <CustomDomainsSettings project={project} projectId={id} />
+
+              {/* CI Config */}
+              <CIConfigSettings projectId={id} odooVersion={project.odoo_version} />
 
               {/* Transfer Ownership */}
               <TransferOwnershipSettings projectId={id} members={members} currentUserId={me?.id} />
