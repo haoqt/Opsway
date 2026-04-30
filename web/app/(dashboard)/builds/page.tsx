@@ -62,7 +62,7 @@ function FilterDropdown({
         className={cn(
           "flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
           isActive
-            ? "border-blue-400 bg-blue-50 text-blue-700 dark:border-blue-500/50 dark:bg-blue-500/10 dark:text-blue-400"
+            ? "border-[hsl(var(--primary)/0.4)] bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))]"
             : "border-[hsl(var(--border))] bg-[hsl(var(--card))] text-[hsl(var(--muted-foreground))] hover:border-[hsl(var(--border)/0.8)] hover:text-[hsl(var(--foreground))]"
         )}
       >
@@ -87,7 +87,7 @@ function FilterDropdown({
               className={cn(
                 "w-full px-3 py-2 text-left text-xs transition-colors hover:bg-[hsl(var(--secondary))]",
                 opt === value
-                  ? "bg-blue-50 text-blue-700 font-medium dark:bg-blue-500/10 dark:text-blue-400"
+                  ? "bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))] font-medium"
                   : "text-[hsl(var(--foreground))]"
               )}
             >
@@ -308,8 +308,7 @@ function BuildRow({ build }: { build: BuildDetail }) {
           {build.branch.odoo_version && <OdooVersionBadge version={build.branch.odoo_version} />}
           <span className={cn(
             "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium border",
-            "bg-blue-50 text-blue-700 border-blue-200",
-            "dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/20"
+            "bg-[hsl(var(--secondary))] text-[hsl(var(--foreground))] border-[hsl(var(--border))]"
           )}>
             <GitBranch size={10} />
             {build.branch.name}
