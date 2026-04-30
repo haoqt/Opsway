@@ -47,8 +47,11 @@ export const projectsApi = {
   create: (data: {
     name: string;
     repo_full_name: string;
+    project_type?: string;
     git_provider?: string;
     odoo_version?: string;
+    postgres_version?: string;
+    odoo_workers?: number;
     description?: string;
     gitlab_token?: string;
     gitlab_url?: string;

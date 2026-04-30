@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { projectsApi } from "@/lib/api";
 import { Button, Input, Select } from "@/components/ui/primitives";
-import { X, FolderGit2 } from "lucide-react";
+import { X, FolderGit2, Server, Wrench } from "lucide-react";
 
 function GithubIcon({ size = 16 }: { size?: number }) {
   return (
@@ -31,7 +31,9 @@ export function NewProjectModal({ onClose, onCreated }: Props) {
   const [form, setForm] = useState({
     name: "",
     repo_full_name: "",
+    project_type: "odoo" as "odoo" | "generic",
     odoo_version: "17",
+    postgres_version: "postgres:16-alpine",
     description: "",
     git_provider: "github",
     gitlab_token: "",
@@ -41,12 +43,16 @@ export function NewProjectModal({ onClose, onCreated }: Props) {
 
   const { mutate, isPending } = useMutation({
     mutationFn: () => {
-      const payload: Record<string, string> = {
+      const payload: Parameters<typeof projectsApi.create>[0] = {
         name: form.name,
         repo_full_name: form.repo_full_name,
-        odoo_version: form.odoo_version,
+        project_type: form.project_type,
         git_provider: form.git_provider,
       };
+      if (form.project_type === "odoo") {
+        payload.odoo_version = form.odoo_version;
+        payload.postgres_version = form.postgres_version;
+      }
       if (form.description.trim()) payload.description = form.description.trim();
       if (form.git_provider === "gitlab") {
         if (form.gitlab_token.trim()) payload.gitlab_token = form.gitlab_token.trim();
@@ -106,9 +112,26 @@ export function NewProjectModal({ onClose, onCreated }: Props) {
     { value: "gitlab", label: "GitLab", icon: <GitlabIcon size={13} /> },
   ];
 
+  const projectTypes = [
+    {
+      value: "odoo" as const,
+      label: "Odoo Project",
+      icon: <Server size={16} />,
+      desc: "Managed Odoo + PostgreSQL lifecycle",
+      color: "violet",
+    },
+    {
+      value: "generic" as const,
+      label: "Generic Project",
+      icon: <Wrench size={16} />,
+      desc: "Custom pipeline via CI Config Files",
+      color: "sky",
+    },
+  ];
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] shadow-2xl p-6">
+      <div className="w-full max-w-md rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] shadow-2xl p-6 max-h-[90vh] overflow-y-auto">
         <div className="mb-5 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/10 text-violet-400">
@@ -128,9 +151,43 @@ export function NewProjectModal({ onClose, onCreated }: Props) {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3.5">
+          {/* Project Type Selector */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Project Type</label>
+            <div className="grid grid-cols-2 gap-2">
+              {projectTypes.map(({ value, label, icon, desc, color }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, project_type: value }))}
+                  className={`relative flex flex-col items-center gap-1.5 rounded-xl border p-3 text-center transition-all ${
+                    form.project_type === value
+                      ? `border-${color}-500/50 bg-${color}-500/10 text-[hsl(var(--foreground))] ring-1 ring-${color}-500/30`
+                      : "border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))] hover:border-[hsl(var(--muted-foreground)/0.5)]"
+                  }`}
+                  style={form.project_type === value ? {
+                    borderColor: color === "violet" ? "rgba(139,92,246,0.5)" : "rgba(56,189,248,0.5)",
+                    backgroundColor: color === "violet" ? "rgba(139,92,246,0.1)" : "rgba(56,189,248,0.1)",
+                    boxShadow: color === "violet" ? "0 0 0 1px rgba(139,92,246,0.3)" : "0 0 0 1px rgba(56,189,248,0.3)",
+                  } : {}}
+                >
+                  <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${
+                    form.project_type === value
+                      ? color === "violet" ? "bg-violet-500/20 text-violet-400" : "bg-sky-500/20 text-sky-400"
+                      : "bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]"
+                  }`}>
+                    {icon}
+                  </div>
+                  <span className="text-xs font-semibold">{label}</span>
+                  <span className="text-[9px] leading-tight opacity-70">{desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <Input
             label="Project Name"
-            placeholder="My Odoo Project"
+            placeholder={form.project_type === "odoo" ? "My Odoo Project" : "My Project"}
             value={form.name}
             onChange={set("name")}
             error={errors.name}
@@ -200,14 +257,33 @@ export function NewProjectModal({ onClose, onCreated }: Props) {
             </>
           )}
 
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Odoo Version</label>
-            <Select value={form.odoo_version} onChange={set("odoo_version")} className="w-full">
-              <option value="16">Odoo 16.0</option>
-              <option value="17">Odoo 17.0</option>
-              <option value="18">Odoo 18.0</option>
-            </Select>
-          </div>
+          {/* Odoo-specific fields */}
+          {form.project_type === "odoo" && (
+            <div className="space-y-3 rounded-lg border border-violet-500/20 bg-violet-500/5 p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-violet-400 flex items-center gap-1.5">
+                <Server size={10} /> Odoo Configuration
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-medium text-[hsl(var(--muted-foreground))]">Odoo Version</label>
+                  <Select value={form.odoo_version} onChange={set("odoo_version")} className="w-full">
+                    <option value="16">Odoo 16.0</option>
+                    <option value="17">Odoo 17.0</option>
+                    <option value="18">Odoo 18.0</option>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-medium text-[hsl(var(--muted-foreground))]">PostgreSQL</label>
+                  <Select value={form.postgres_version} onChange={set("postgres_version")} className="w-full">
+                    <option value="postgres:14-alpine">PostgreSQL 14</option>
+                    <option value="postgres:15-alpine">PostgreSQL 15</option>
+                    <option value="postgres:16-alpine">PostgreSQL 16</option>
+                    <option value="postgres:17-alpine">PostgreSQL 17</option>
+                  </Select>
+                </div>
+              </div>
+            </div>
+          )}
 
           <Input
             label="Description (optional)"

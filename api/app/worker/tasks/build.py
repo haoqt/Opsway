@@ -716,40 +716,100 @@ def trigger_build(self, build_id: str, branch_id: str):
                 commit_info = get_latest_commit(repo)
                 log(f"✅ Checked out {commit_info['short_sha']}")
 
-                # ── Sync CI files from repo → DB ───────────────
-                try:
-                    _sync_ci_files_from_repo(session, project.id, local_path, log)
-                except Exception as e:
-                    log(f"⚠️  CI file sync skipped: {e}")
-
-                # ── Read .opsway.yml → pipeline plan ───────────
-                opsway_cfg = _load_opsway_config(session, project.id, log)
+                # ── Build pipeline config based on project type ─────────
                 env_value = branch.environment.value
+                is_odoo_project = project.project_type.value == "odoo"
 
-                # When no .opsway.yml is present (or it has no jobs), inject a
-                # minimal default so deploy always runs via Docker SDK and tests
-                # respect the branch.run_tests DB flag.
-                if not _find_stage_jobs(opsway_cfg, "deploy", env_value):
-                    log("ℹ️  No deploy jobs in .opsway.yml — using Opsway default pipeline")
-                    opsway_cfg.setdefault("stages", ["deploy"])
-                    if "deploy" not in opsway_cfg["stages"]:
-                        opsway_cfg["stages"].insert(0, "deploy")
-                    opsway_cfg[f"deploy_{env_value}"] = {
-                        "stage": "deploy",
-                        "trigger": "opsway",
-                        "environment": env_value,
-                        "when": "auto",
+                if is_odoo_project:
+                    # ── Odoo project: DB-driven pipeline (no CI Config Files) ──
+                    log("🧱 Odoo project — using DB-driven pipeline config")
+
+                    # Resolve per-branch overrides → project defaults
+                    _pg_version = branch.postgres_version or project.postgres_version or "postgres:16-alpine"
+                    _odoo_ver = branch.odoo_version or project.odoo_version or "17"
+                    _odoo_img = branch.odoo_image or project.odoo_image_override or None
+                    _addons_path = branch.custom_addons_path or project.custom_addons_path or "custom_addons"
+                    _workers = project.odoo_workers or 2
+
+                    log(f"   Odoo: {_odoo_ver} | PG: {_pg_version} | Workers: {_workers}")
+
+                    opsway_cfg = {
+                        "stages": ["deploy"],
+                        f"deploy_{env_value}": {
+                            "stage": "deploy",
+                            "trigger": "opsway",
+                            "environment": env_value,
+                            "when": "auto",
+                            "services": {
+                                "database": {
+                                    "image": _pg_version,
+                                    "environment": {
+                                        "POSTGRES_USER": "odoo",
+                                        "POSTGRES_PASSWORD": "odoo",
+                                    },
+                                },
+                                "web": {
+                                    "image": _odoo_img or (f"odoo:{_odoo_ver}.0" if "." not in str(_odoo_ver) else f"odoo:{_odoo_ver}"),
+                                    "volumes": [
+                                        f"./{_addons_path}:/mnt/extra-addons",
+                                    ],
+                                    "environment": {
+                                        "HOST": "database",
+                                        "USER": "odoo",
+                                        "PASSWORD": "odoo",
+                                    },
+                                },
+                            },
+                        },
                     }
+
+                    # Add tests stage if enabled on branch
                     if branch.run_tests and branch.environment == EnvironmentType.DEVELOPMENT:
-                        if "tests" not in opsway_cfg["stages"]:
-                            opsway_cfg["stages"].append("tests")
-                        opsway_cfg.setdefault("tests", {
+                        opsway_cfg["stages"].append("tests")
+                        opsway_cfg["tests"] = {
                             "stage": "tests",
                             "exec_in": "odoo",
                             "script": ["odoo --test-enable --test-tags at_install --stop-after-init -d ${DB_NAME} --db_host ${DB_HOST}"],
                             "allow_failure": True,
                             "only": ["development"],
-                        })
+                        }
+                else:
+                    # ── Generic project: .opsway.yml-driven pipeline ───────
+                    log("🔧 Generic project — using CI Config Files pipeline")
+
+                    # Sync CI files from repo → DB
+                    try:
+                        _sync_ci_files_from_repo(session, project.id, local_path, log)
+                    except Exception as e:
+                        log(f"⚠️  CI file sync skipped: {e}")
+
+                    # Read .opsway.yml → pipeline plan
+                    opsway_cfg = _load_opsway_config(session, project.id, log)
+
+                    # When no .opsway.yml is present (or it has no jobs), inject a
+                    # minimal default so deploy always runs via Docker SDK and tests
+                    # respect the branch.run_tests DB flag.
+                    if not _find_stage_jobs(opsway_cfg, "deploy", env_value):
+                        log("ℹ️  No deploy jobs in .opsway.yml — using Opsway default pipeline")
+                        opsway_cfg.setdefault("stages", ["deploy"])
+                        if "deploy" not in opsway_cfg["stages"]:
+                            opsway_cfg["stages"].insert(0, "deploy")
+                        opsway_cfg[f"deploy_{env_value}"] = {
+                            "stage": "deploy",
+                            "trigger": "opsway",
+                            "environment": env_value,
+                            "when": "auto",
+                        }
+                        if branch.run_tests and branch.environment == EnvironmentType.DEVELOPMENT:
+                            if "tests" not in opsway_cfg["stages"]:
+                                opsway_cfg["stages"].append("tests")
+                            opsway_cfg.setdefault("tests", {
+                                "stage": "tests",
+                                "exec_in": "odoo",
+                                "script": ["odoo --test-enable --test-tags at_install --stop-after-init -d ${DB_NAME} --db_host ${DB_HOST}"],
+                                "allow_failure": True,
+                                "only": ["development"],
+                            })
 
                 pipeline_stages = opsway_cfg.get("stages") or ["deploy"]
                 log(f"📋 Pipeline: {' → '.join(pipeline_stages)}")

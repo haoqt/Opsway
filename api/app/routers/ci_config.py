@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
-from app.models import ProjectCIConfig, ProjectMember, UserRole, User
+from app.models import ProjectCIConfig, ProjectMember, UserRole, User, ProjectType
 from app.schemas import CIFilesOut, CIFileUpdate
 from app.routers.auth import get_current_user
 from app.routers.projects import get_project_or_404
@@ -19,6 +19,15 @@ from app.services.ci_config_generator import (
 )
 
 router = APIRouter(prefix="/projects", tags=["ci-config"])
+
+
+def _require_generic_project(project) -> None:
+    """CI Config Files are only available for Generic projects."""
+    if project.project_type == ProjectType.ODOO:
+        raise HTTPException(
+            status_code=400,
+            detail="CI Config Files are not available for Odoo projects. Use Project Settings instead."
+        )
 
 
 async def _get_or_create_record(project_id: uuid.UUID, db: AsyncSession) -> ProjectCIConfig:
@@ -77,6 +86,7 @@ async def get_ci_files(
 ):
     """Return all CI files — stored content or generated defaults."""
     project = await get_project_or_404(project_id, db, current_user)
+    _require_generic_project(project)
     ci = await _get_or_create_record(project.id, db)
 
     stored = dict(ci.config or {})
@@ -103,6 +113,7 @@ async def save_ci_file(
         raise HTTPException(status_code=400, detail=f"Unknown file: {filename}. Allowed: {CI_FILENAMES}")
 
     project = await get_project_or_404(project_id, db, current_user)
+    _require_generic_project(project)
     await _require_owner(project.id, current_user, db)
 
     ci = await _get_or_create_record(project.id, db)
@@ -129,6 +140,7 @@ async def reset_ci_file(
         raise HTTPException(status_code=400, detail=f"Unknown file: {filename}")
 
     project = await get_project_or_404(project_id, db, current_user)
+    _require_generic_project(project)
     await _require_owner(project.id, current_user, db)
 
     ci = await _get_or_create_record(project.id, db)
@@ -155,6 +167,7 @@ async def download_ci_file(
         raise HTTPException(status_code=404, detail=f"Unknown file: {filename}")
 
     project = await get_project_or_404(project_id, db, current_user)
+    _require_generic_project(project)
     ci = await _get_or_create_record(project.id, db)
     stored = dict(ci.config or {})
 

@@ -54,6 +54,11 @@ class UptimeStatus(str, enum.Enum):
     UNKNOWN = "unknown"
 
 
+class ProjectType(str, enum.Enum):
+    ODOO = "odoo"
+    GENERIC = "generic"
+
+
 # ──────────────────────────────────────────────────────────────
 # User
 # ──────────────────────────────────────────────────────────────
@@ -118,9 +123,18 @@ class Project(Base):
     deploy_key_public: Mapped[str | None] = mapped_column(Text)
     deploy_key_private: Mapped[str | None] = mapped_column(Text)  # encrypted
 
+    # Project type
+    project_type: Mapped[ProjectType] = mapped_column(
+        Enum(ProjectType, native_enum=False, values_callable=lambda x: [m.value for m in x]),
+        default=ProjectType.ODOO, nullable=False
+    )
+
     # Odoo config
     odoo_version: Mapped[str | None] = mapped_column(String(10))  # e.g. "17"
     custom_addons_path: Mapped[str | None] = mapped_column(String(255), default="custom_addons")
+    postgres_version: Mapped[str] = mapped_column(String(30), default="postgres:16-alpine")
+    odoo_workers: Mapped[int] = mapped_column(Integer, default=2)
+    odoo_image_override: Mapped[str | None] = mapped_column(String(512))  # custom registry image
 
     # Build limits
     build_limit_dev: Mapped[int] = mapped_column(Integer, default=5)
@@ -211,6 +225,11 @@ class Branch(Base):
 
     # Odoo version (overrides project default)
     odoo_version: Mapped[str | None] = mapped_column(String(10))
+
+    # Per-branch Odoo overrides (project_type == ODOO only)
+    postgres_version: Mapped[str | None] = mapped_column(String(30))
+    odoo_image: Mapped[str | None] = mapped_column(String(512))
+    custom_addons_path: Mapped[str | None] = mapped_column(String(255))
 
     # Settings
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

@@ -16,6 +16,7 @@ import {
 } from "@dnd-kit/core";
 import { projectsApi, branchesApi, domainsApi, monitoringApi, membersApi, authApi, uptimeApi, ciConfigApi } from "@/lib/api";
 import { CIConfigSettings } from "@/components/projects/ci-config-settings";
+import { OdooProjectSettings } from "@/components/projects/odoo-project-settings";
 import { ProjectDetail, Branch, DomainVerification, ProjectMember } from "@/lib/types";
 import { Topbar } from "@/components/layout/sidebar";
 import { Card, Button, Skeleton, EmptyState } from "@/components/ui/primitives";
@@ -26,7 +27,7 @@ import {
   GitCommit, Terminal, Layers, Play, Copy,
   CheckCircle2, AlertCircle, ChevronRight, Database, Database as DatabaseIcon,
   Globe, Shield, ShieldCheck, Mail, Download, Trash2, Link2, Loader2, Users, UserPlus, Crown, Activity,
-  KeyRound, Plus, X
+  KeyRound, Plus, X, Server, Wrench
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -176,7 +177,18 @@ export default function ProjectDetailPage() {
             <>
               {/* Project info */}
               <div className="flex items-center gap-3 flex-wrap mb-4">
-                <OdooVersionBadge version={project.odoo_version} />
+                {project.project_type === "odoo" ? (
+                  <>
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-violet-500/10 text-violet-400 border border-violet-500/20">
+                      <Server size={10} /> Odoo Project
+                    </span>
+                    <OdooVersionBadge version={project.odoo_version} />
+                  </>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                    <Wrench size={10} /> Generic Project
+                  </span>
+                )}
                 <span className="text-xs text-[hsl(var(--muted-foreground))]">
                   {project.branch_count} branches · Created {formatTimeAgo(project.created_at)}
                 </span>
@@ -415,11 +427,17 @@ export default function ProjectDetailPage() {
               {/* Custom Domains */}
               <CustomDomainsSettings project={project} projectId={id} />
 
-              {/* Environment Variables */}
-              <EnvironmentVariablesSettings projectId={id} branches={project.branches ?? []} />
+              {/* Environment Variables — Generic projects only */}
+              {project.project_type !== "odoo" && (
+                <EnvironmentVariablesSettings projectId={id} branches={project.branches ?? []} />
+              )}
 
-              {/* CI Config */}
-              <CIConfigSettings projectId={id} odooVersion={project.odoo_version} />
+              {/* Project Config: Odoo Settings or CI Config Files */}
+              {project.project_type === "odoo" ? (
+                <OdooProjectSettings project={project} />
+              ) : (
+                <CIConfigSettings projectId={id} odooVersion={project.odoo_version} />
+              )}
 
               {/* Transfer Ownership */}
               <TransferOwnershipSettings projectId={id} members={members} currentUserId={me?.id} />

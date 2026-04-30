@@ -72,6 +72,9 @@ async def create_branch(
         auto_deploy=data.auto_deploy,
         run_tests=data.run_tests,
         env_vars=data.env_vars,
+        postgres_version=data.postgres_version,
+        odoo_image=data.odoo_image,
+        custom_addons_path=data.custom_addons_path,
     )
     db.add(branch)
     await db.flush()

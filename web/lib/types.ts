@@ -3,6 +3,7 @@ export type EnvironmentType = "development" | "staging" | "production";
 export type BuildStatus = "pending" | "building" | "success" | "failed" | "cancelled";
 export type UserRole = "owner" | "developer" | "viewer";
 export type UptimeStatus = "up" | "down" | "unknown";
+export type ProjectType = "odoo" | "generic";
 
 export interface ProjectMember {
   id: string;
@@ -36,12 +37,17 @@ export interface Project {
   name: string;
   slug: string;
   description: string | null;
+  project_type: ProjectType;
   git_provider: GitProvider;
   repo_owner: string;
   repo_name: string;
   repo_full_name: string;
   repo_url: string | null;
   odoo_version: string | null;
+  custom_addons_path: string | null;
+  postgres_version: string;
+  odoo_workers: number;
+  odoo_image_override: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -93,6 +99,9 @@ export interface Branch {
   uptime_status: UptimeStatus;
   uptime_last_checked_at: string | null;
   uptime_response_ms: number | null;
+  postgres_version: string | null;
+  odoo_image: string | null;
+  custom_addons_path: string | null;
   last_commit_sha: string | null;
   last_commit_message: string | null;
   last_commit_author: string | null;

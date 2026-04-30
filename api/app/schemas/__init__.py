@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional, Any
 from pydantic import BaseModel, EmailStr, Field
 
-from app.models import GitProvider, EnvironmentType, BuildStatus, UserRole, UptimeStatus
+from app.models import GitProvider, EnvironmentType, BuildStatus, UserRole, UptimeStatus, ProjectType
 
 
 # ──────────────────────────────────────────────────────────────
@@ -89,10 +89,13 @@ class MemberUpdate(BaseModel):
 class ProjectCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: str | None = None
+    project_type: ProjectType = ProjectType.ODOO
     git_provider: GitProvider = GitProvider.GITHUB
     repo_full_name: str = Field(..., description="owner/repo format")
     odoo_version: str | None = Field(None, description="15, 16, 17, or 18")
     custom_addons_path: str = "custom_addons"
+    postgres_version: str = "postgres:16-alpine"
+    odoo_workers: int = 2
     build_limit_dev: int = 5
     build_limit_staging: int = 2
     build_limit_production: int = 1
@@ -105,6 +108,9 @@ class ProjectUpdate(BaseModel):
     description: str | None = None
     odoo_version: str | None = None
     custom_addons_path: str | None = None
+    postgres_version: str | None = None
+    odoo_workers: int | None = None
+    odoo_image_override: str | None = None
     build_limit_dev: int | None = None
     build_limit_staging: int | None = None
     build_limit_production: int | None = None
@@ -127,12 +133,17 @@ class ProjectOut(BaseModel):
     name: str
     slug: str
     description: str | None
+    project_type: ProjectType
     git_provider: GitProvider
     repo_owner: str
     repo_name: str
     repo_full_name: str
     repo_url: str | None
     odoo_version: str | None
+    custom_addons_path: str | None
+    postgres_version: str
+    odoo_workers: int
+    odoo_image_override: str | None
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -176,6 +187,9 @@ class BranchCreate(BaseModel):
     auto_deploy: bool = True
     run_tests: bool = True
     env_vars: dict[str, str] = {}
+    postgres_version: str | None = None
+    odoo_image: str | None = None
+    custom_addons_path: str | None = None
 
 
 class BranchUpdate(BaseModel):
@@ -183,6 +197,10 @@ class BranchUpdate(BaseModel):
     auto_deploy: bool | None = None
     run_tests: bool | None = None
     env_vars: dict[str, str] | None = None
+    odoo_version: str | None = None
+    postgres_version: str | None = None
+    odoo_image: str | None = None
+    custom_addons_path: str | None = None
 
 class BranchOut(BaseModel):
     id: uuid.UUID
@@ -205,6 +223,9 @@ class BranchOut(BaseModel):
     uptime_status: UptimeStatus = UptimeStatus.UNKNOWN
     uptime_last_checked_at: datetime | None = None
     uptime_response_ms: int | None = None
+    postgres_version: str | None = None
+    odoo_image: str | None = None
+    custom_addons_path: str | None = None
     last_commit_sha: str | None
     last_commit_message: str | None
     last_commit_author: str | None
