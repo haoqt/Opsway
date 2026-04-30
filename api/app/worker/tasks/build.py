@@ -474,6 +474,9 @@ def trigger_build(self, build_id: str, branch_id: str):
     build_id_str = str(build_id)
     docker = DockerManager()
 
+    # Clear any stale log data from a previous run with the same ID
+    redis_client.delete(_log_key(build_id_str))
+
     def log(line: str):
         _publish_log(build_id_str, line)
         logger.info(f"[Build {build_id_str[:8]}] {line}")
@@ -695,7 +698,7 @@ def trigger_build(self, build_id: str, branch_id: str):
                 _update_build_status(
                     session, build, BuildStatus.SUCCESS,
                     finished_at=finished,
-                    duration_seconds=int((finished - build.started_at).total_seconds()),
+                    duration_seconds=int((finished - (build.started_at or finished)).total_seconds()),
                     test_passed=test_passed,
                     test_count=test_count,
                 )

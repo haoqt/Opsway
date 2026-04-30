@@ -1,22 +1,30 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { buildsApi } from "@/lib/api";
 import { BuildDetail } from "@/lib/types";
 import { Topbar } from "@/components/layout/sidebar";
-import { Card, Button } from "@/components/ui/primitives";
-import { BuildStatusBadge, EnvironmentBadge } from "@/components/ui/badges";
-import { formatDuration, formatTimeAgo, shortSha } from "@/lib/utils";
+import { Button } from "@/components/ui/primitives";
+import { BuildStatusBadge } from "@/components/ui/badges";
+import { formatDuration, shortSha } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import {
   Terminal, GitCommit, Clock, CheckCircle2,
-  XCircle, AlertCircle, Download, Maximize2, Square, RotateCcw
+  AlertCircle, Download, Square, RotateCcw, Loader2
 } from "lucide-react";
 import { BuildTimeline } from "@/components/builds/build-timeline";
 
+// ── Page shell — only resolves buildId, passes it as key to content ──
+
 export default function BuildDetailPage() {
   const { buildId } = useParams<{ buildId: string }>();
+  return <BuildContent key={buildId} buildId={buildId} />;
+}
+
+// ── Build content — fully remounts on buildId change ─────────────
+
+function BuildContent({ buildId }: { buildId: string }) {
   const logRef = useRef<HTMLDivElement>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -28,13 +36,12 @@ export default function BuildDetailPage() {
     refetchInterval: 5000,
   });
 
-  // SSE log streaming — reset logs on every buildId change
+  // SSE log streaming — explicit reset before connecting (belt + key-based suspenders)
   useEffect(() => {
     if (!buildId) return;
     setLogs([]);
-    const url = buildsApi.logsUrl(buildId);
-    const source = new EventSource(url);
     setIsStreaming(true);
+    const source = new EventSource(buildsApi.logsUrl(buildId));
 
     source.onmessage = (e) => {
       try {
@@ -78,7 +85,7 @@ export default function BuildDetailPage() {
       try {
         await buildsApi.cancel(buildId);
         refetch();
-      } catch (err) {
+      } catch {
         alert("Failed to cancel build");
       }
     }
@@ -89,7 +96,7 @@ export default function BuildDetailPage() {
       try {
         const res = await buildsApi.retry(buildId);
         window.location.href = `/builds/${res.data.id}`;
-      } catch (err) {
+      } catch {
         alert("Failed to retry build");
       }
     }
@@ -110,9 +117,9 @@ export default function BuildDetailPage() {
 
   return (
     <>
-      <Topbar 
-        title={`Build #${shortSha(build.id)}`} 
-        backHref={build ? `/projects/${build.branch.project_id}/branches/${build.branch_id}/builds` : "/builds"}
+      <Topbar
+        title={`Build #${shortSha(build.id)}`}
+        backHref={`/projects/${build.branch.project_id}/branches/${build.branch_id}/builds`}
       >
         <div className="flex items-center gap-3">
           <BuildStatusBadge status={build.status} size="md" />
@@ -186,7 +193,6 @@ export default function BuildDetailPage() {
         <div className="flex-1 min-h-0 flex gap-4">
           {/* Build Output — 2/3 */}
           <div className="flex-[2] min-w-0 flex flex-col rounded-xl border border-[hsl(var(--border))] bg-[#0d1117] overflow-hidden">
-            {/* Log toolbar */}
             <div className="flex items-center gap-2 border-b border-[hsl(var(--border))] bg-[#161b22] px-4 py-2">
               <Terminal size={13} className="text-[hsl(var(--muted-foreground))]" />
               <span className="text-xs text-[hsl(var(--muted-foreground))]">Build Output</span>
@@ -215,7 +221,6 @@ export default function BuildDetailPage() {
               </div>
             </div>
 
-            {/* Log content */}
             <div
               ref={logRef}
               className="flex-1 overflow-y-auto px-4 py-3 space-y-0.5"
@@ -231,9 +236,7 @@ export default function BuildDetailPage() {
                   Waiting for build output…
                 </div>
               ) : (
-                logs.map((line, i) => (
-                  <LogLine key={i} line={line} index={i} />
-                ))
+                logs.map((line, i) => <LogLine key={i} line={line} index={i} />)
               )}
             </div>
           </div>
@@ -244,7 +247,14 @@ export default function BuildDetailPage() {
               <span className="text-xs text-[hsl(var(--muted-foreground))]">Pipeline</span>
             </div>
             <div className="flex-1 overflow-y-auto px-4 py-3">
-              <BuildTimeline status={build.status} logs={logs} />
+              {isStreaming && logs.length === 0 ? (
+                <div className="flex items-center gap-2 py-4 text-xs text-zinc-600">
+                  <Loader2 size={12} className="animate-spin" />
+                  Waiting for pipeline…
+                </div>
+              ) : (
+                <BuildTimeline status={build.status} isStreaming={isStreaming} logs={logs} />
+              )}
             </div>
           </div>
         </div>
@@ -253,11 +263,10 @@ export default function BuildDetailPage() {
   );
 }
 
-// ── Log line renderer ──────────────────────────────────────────
+// ── Log line renderer ─────────────────────────────────────────────
 
 function LogLine({ line, index }: { line: string; index: number }) {
   const trimmed = line.trimEnd();
-
   const color =
     trimmed.includes("💥") || trimmed.includes("FAILED") || trimmed.toLowerCase().includes("error")
       ? "text-red-400"
@@ -281,11 +290,9 @@ function LogLine({ line, index }: { line: string; index: number }) {
   );
 }
 
-// ── Meta card ─────────────────────────────────────────────────
+// ── Meta card ────────────────────────────────────────────────────
 
-function MetaCard({
-  icon: Icon, label, children,
-}: {
+function MetaCard({ icon: Icon, label, children }: {
   icon: React.ElementType; label: string; children: React.ReactNode;
 }) {
   return (

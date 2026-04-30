@@ -120,6 +120,7 @@ code_quality:
   stage: code_quality
   image: {python_image}
   script:
+    - apt-get update -qq && apt-get install -y git --no-install-recommends -qq
     - pip install pre-commit --quiet
     - pre-commit run --all-files --config .pre-commit-config.yml
   allow_failure: true

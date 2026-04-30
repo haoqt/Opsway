@@ -125,27 +125,28 @@ async def retry_build(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Re-trigger a build using the same commit info."""
+    """Create a new build from the same commit info (new ID → clean log stream)."""
     old_build = await db.get(Build, uuid.UUID(build_id))
     if not old_build:
         raise HTTPException(status_code=404, detail="Build not found")
-    
-    # Reset existing build instead of creating new
-    old_build.status = BuildStatus.PENDING
-    old_build.started_at = None
-    old_build.finished_at = None
-    old_build.duration_seconds = None
-    old_build.error_message = None
-    old_build.test_passed = None
-    old_build.test_count = None
-    old_build.triggered_by = "retry"
-    
-    # Dispatch same build ID to Celery
-    task = trigger_build.delay(str(old_build.id), str(old_build.branch_id))
-    old_build.task_id = task.id
-    
+
+    new_build = Build(
+        branch_id=old_build.branch_id,
+        commit_sha=old_build.commit_sha,
+        commit_message=old_build.commit_message,
+        commit_author=old_build.commit_author,
+        status=BuildStatus.PENDING,
+        triggered_by="retry",
+    )
+    db.add(new_build)
+    await db.flush()  # get new_build.id
+
+    task = trigger_build.delay(str(new_build.id), str(new_build.branch_id))
+    new_build.task_id = task.id
+
     await db.commit()
-    return old_build
+    await db.refresh(new_build)
+    return new_build
 @router.get("/{build_id}/logs")
 async def stream_build_logs(
     build_id: str,
