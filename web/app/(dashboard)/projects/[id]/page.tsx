@@ -320,7 +320,7 @@ export default function ProjectDetailPage() {
                     <div>
                       <p className="text-[10px] font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-tight mb-1">Payload URL</p>
                       <div className="flex items-center gap-2">
-                        <code className="text-[11px] font-mono bg-black/20 px-1.5 py-0.5 rounded flex-1 truncate">
+                        <code className="text-[11px] font-mono bg-[hsl(var(--secondary))] px-1.5 py-0.5 rounded flex-1 truncate">
                           {project.webhook_url}
                         </code>
                         <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => navigator.clipboard.writeText(project.webhook_url || "")}>
@@ -331,7 +331,7 @@ export default function ProjectDetailPage() {
                     <div>
                       <p className="text-[10px] font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-tight mb-1">Secret</p>
                       <div className="flex items-center gap-2">
-                        <code className="text-[11px] font-mono bg-black/20 px-1.5 py-0.5 rounded flex-1 truncate">
+                        <code className="text-[11px] font-mono bg-[hsl(var(--secondary))] px-1.5 py-0.5 rounded flex-1 truncate">
                           {project.webhook_secret}
                         </code>
                         <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => navigator.clipboard.writeText(project.webhook_secret || "")}>
@@ -346,7 +346,7 @@ export default function ProjectDetailPage() {
                     <div className="space-y-2 rounded-lg bg-[hsl(var(--secondary)/0.5)] p-3 border border-[hsl(var(--border))]">
                       <p className="text-[10px] font-medium text-[hsl(var(--muted-foreground))] uppercase tracking-tight">Public Deploy Key (SSH)</p>
                       <div className="flex items-start gap-2">
-                        <code className="text-[10px] font-mono bg-black/20 p-2 rounded flex-1 break-all line-clamp-3 overflow-hidden">
+                        <code className="text-[10px] font-mono bg-[hsl(var(--secondary))] p-2 rounded flex-1 break-all line-clamp-3 overflow-hidden">
                           {project.deploy_key_public}
                         </code>
                         <Button variant="ghost" size="sm" className="h-6 w-6 p-0 shrink-0" onClick={() => navigator.clipboard.writeText(project.deploy_key_public || "")}>
@@ -370,7 +370,7 @@ export default function ProjectDetailPage() {
                       <input
                         type="number"
                         defaultValue={project.build_limit_dev}
-                        className="w-full mt-1 bg-black/20 border border-[hsl(var(--border))] rounded px-2 py-1 text-xs"
+                        className="w-full mt-1 bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded px-2 py-1 text-xs"
                         onBlur={(e) => {
                           const val = parseInt(e.target.value);
                           if (!isNaN(val)) projectsApi.update(id, { build_limit_dev: val }).then(() => qc.invalidateQueries({ queryKey: ["project", id] }));
@@ -383,7 +383,7 @@ export default function ProjectDetailPage() {
                       <input
                         type="number"
                         defaultValue={project.build_limit_staging}
-                        className="w-full mt-1 bg-black/20 border border-[hsl(var(--border))] rounded px-2 py-1 text-xs"
+                        className="w-full mt-1 bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded px-2 py-1 text-xs"
                         onBlur={(e) => {
                           const val = parseInt(e.target.value);
                           if (!isNaN(val)) projectsApi.update(id, { build_limit_staging: val }).then(() => qc.invalidateQueries({ queryKey: ["project", id] }));
@@ -396,7 +396,7 @@ export default function ProjectDetailPage() {
                       <input
                         type="number"
                         defaultValue={project.build_limit_production}
-                        className="w-full mt-1 bg-black/20 border border-[hsl(var(--border))] rounded px-2 py-1 text-xs"
+                        className="w-full mt-1 bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded px-2 py-1 text-xs"
                         onBlur={(e) => {
                           const val = parseInt(e.target.value);
                           if (!isNaN(val)) projectsApi.update(id, { build_limit_production: val }).then(() => qc.invalidateQueries({ queryKey: ["project", id] }));
@@ -526,7 +526,7 @@ function BranchColumn({
       <div className="flex-1 p-3 space-y-4 overflow-y-auto max-h-[calc(100vh-280px)] custom-scrollbar">
         {branches.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 opacity-30">
-            <div className={cn("p-3 rounded-full bg-black/10 mb-3", theme.text)}>
+            <div className={cn("p-3 rounded-full bg-[hsl(var(--secondary)/0.5)] mb-3", theme.text)}>
               <Layers size={24} className="stroke-1" />
             </div>
             <p className="text-[10px] font-bold uppercase tracking-tighter">No {title} Branches</p>
@@ -681,7 +681,7 @@ function BranchCard({
                     <span className="text-[8px] text-[hsl(var(--muted-foreground))] uppercase font-bold">CPU</span>
                     <span className="text-[9px] font-mono">{metrics.cpu}%</span>
                   </div>
-                  <div className="h-1 rounded-full bg-white/10 overflow-hidden">
+                  <div className="h-1 rounded-full bg-[hsl(var(--border))] overflow-hidden">
                     <div
                       className="h-full rounded-full transition-all duration-500"
                       style={{
@@ -694,7 +694,7 @@ function BranchCard({
                     <span className="text-[8px] text-[hsl(var(--muted-foreground))] uppercase font-bold">RAM</span>
                     <span className="text-[9px] font-mono">{metrics.memory}%</span>
                   </div>
-                  <div className="h-1 rounded-full bg-white/10 overflow-hidden">
+                  <div className="h-1 rounded-full bg-[hsl(var(--border))] overflow-hidden">
                     <div
                       className="h-full rounded-full transition-all duration-500"
                       style={{
@@ -1241,7 +1241,7 @@ function CustomDomainsSettings({ project, projectId }: { project: ProjectDetail;
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <Globe size={12} className="text-blue-400 shrink-0" />
-              <code className="text-[11px] font-mono bg-black/20 px-2 py-1 rounded truncate flex-1">
+              <code className="text-[11px] font-mono bg-[hsl(var(--secondary))] px-2 py-1 rounded truncate flex-1">
                 {project.custom_domain}
               </code>
             </div>
@@ -1280,7 +1280,7 @@ function CustomDomainsSettings({ project, projectId }: { project: ProjectDetail;
             <input
               type="text"
               placeholder="e.g. mycompany.com"
-              className="flex-1 bg-black/20 border border-[hsl(var(--border))] rounded px-3 py-1 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
+              className="flex-1 bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded px-3 py-1 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
               value={domainInput}
               onChange={(e) => setDomainInput(e.target.value)}
             />
@@ -1304,11 +1304,11 @@ function CustomDomainsSettings({ project, projectId }: { project: ProjectDetail;
           <div className="pt-2 space-y-1">
             <p className="text-[9px] font-bold text-[hsl(var(--muted-foreground))] uppercase tracking-tight">Example Routing:</p>
             <div className="grid grid-cols-2 gap-2">
-              <div className="bg-black/10 p-1.5 rounded border border-[hsl(var(--border))]">
+              <div className="bg-[hsl(var(--secondary)/0.5)] p-1.5 rounded border border-[hsl(var(--border))]">
                 <p className="text-[8px] text-[hsl(var(--muted-foreground))] uppercase">Main Branch</p>
                 <p className="text-[10px] font-mono text-emerald-400 truncate">https://{project.custom_domain}</p>
               </div>
-              <div className="bg-black/10 p-1.5 rounded border border-[hsl(var(--border))]">
+              <div className="bg-[hsl(var(--secondary)/0.5)] p-1.5 rounded border border-[hsl(var(--border))]">
                 <p className="text-[8px] text-[hsl(var(--muted-foreground))] uppercase">Staging Branch</p>
                 <p className="text-[10px] font-mono text-amber-400 truncate">https://staging.{project.custom_domain}</p>
               </div>
@@ -1334,7 +1334,7 @@ function CustomDomainsSettings({ project, projectId }: { project: ProjectDetail;
             <span className="text-[10px] font-bold text-[hsl(var(--primary))] mt-0.5 shrink-0">2.</span>
             <div className="text-[10px] text-[hsl(var(--muted-foreground))] space-y-1">
               <p>Add the following records:</p>
-              <div className="bg-black/20 p-2 rounded font-mono text-[9px] space-y-1">
+              <div className="bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] p-2 rounded font-mono text-[9px] space-y-1">
                 <div className="flex justify-between">
                   <span>Type: <code className="text-blue-400">CNAME</code></span>
                   <span>Name: <code className="text-blue-400">@</code> (or root)</span>
@@ -1343,7 +1343,7 @@ function CustomDomainsSettings({ project, projectId }: { project: ProjectDetail;
                   <span>Target:</span>
                   <code className="text-emerald-400">{cnameTarget}</code>
                 </div>
-                <div className="border-t border-white/5 my-1" />
+                <div className="border-t border-[hsl(var(--border))] my-1" />
                 <div className="flex justify-between">
                   <span>Type: <code className="text-blue-400">CNAME</code></span>
                   <span>Name: <code className="text-blue-400">*</code> (wildcard)</span>
@@ -1417,7 +1417,7 @@ function NotificationSettings({ project, projectId }: { project: ProjectDetail; 
           <input
             type="email"
             placeholder="team@yourcompany.com"
-            className="w-full bg-black/20 border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
+            className="w-full bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
@@ -1430,7 +1430,7 @@ function NotificationSettings({ project, projectId }: { project: ProjectDetail; 
           <input
             type="url"
             placeholder="https://example.com/hooks/opsway"
-            className="w-full bg-black/20 border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
+            className="w-full bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
             value={webhookUrl}
             onChange={(e) => setWebhookUrl(e.target.value)}
           />
@@ -1443,7 +1443,7 @@ function NotificationSettings({ project, projectId }: { project: ProjectDetail; 
           <input
             type="url"
             placeholder="https://hooks.slack.com/services/..."
-            className="w-full bg-black/20 border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
+            className="w-full bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
             value={slackUrl}
             onChange={(e) => setSlackUrl(e.target.value)}
           />
@@ -1457,7 +1457,7 @@ function NotificationSettings({ project, projectId }: { project: ProjectDetail; 
             <input
               type="password"
               placeholder="123456:ABC-..."
-              className="w-full bg-black/20 border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
+              className="w-full bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
               value={tgToken}
               onChange={(e) => setTgToken(e.target.value)}
             />
@@ -1469,7 +1469,7 @@ function NotificationSettings({ project, projectId }: { project: ProjectDetail; 
             <input
               type="text"
               placeholder="-100xxxxxxxxxx"
-              className="w-full bg-black/20 border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
+              className="w-full bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
               value={tgChatId}
               onChange={(e) => setTgChatId(e.target.value)}
             />
@@ -1547,7 +1547,7 @@ function GitLabTokenSettings({ project, projectId }: { project: ProjectDetail; p
         <input
           type="url"
           placeholder="https://gitlab.mycompany.com"
-          className="w-full bg-black/20 border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
+          className="w-full bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
           value={gitlabUrl}
           onChange={(e) => setGitlabUrl(e.target.value)}
         />
@@ -1559,7 +1559,7 @@ function GitLabTokenSettings({ project, projectId }: { project: ProjectDetail; p
         <input
           type="password"
           placeholder="glpat-xxxxxxxxxxxxxxxxxxxx"
-          className="w-full bg-black/20 border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
+          className="w-full bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
           value={token}
           onChange={(e) => setToken(e.target.value)}
         />
@@ -1619,7 +1619,7 @@ function DeleteProjectSettings({ projectId, projectName }: { projectId: string; 
           </p>
           <input
             autoFocus
-            className="w-full bg-black/20 border border-red-500/40 rounded px-3 py-1.5 text-xs focus:outline-none focus:border-red-500"
+            className="w-full bg-[hsl(var(--secondary))] border border-red-500/40 rounded px-3 py-1.5 text-xs focus:outline-none focus:border-red-500"
             placeholder={projectName}
             value={confirmName}
             onChange={(e) => setConfirmName(e.target.value)}
@@ -1686,7 +1686,7 @@ function TransferOwnershipSettings({
       ) : (
         <div className="space-y-3">
           <select
-            className="w-full bg-black/20 border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
+            className="w-full bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
             value={selectedUserId}
             onChange={(e) => { setSelectedUserId(e.target.value); setConfirming(false); }}
           >

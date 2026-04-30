@@ -188,8 +188,8 @@ function StatusIcon({ status, size = 14 }: { status: StepStatus; size?: number }
   if (status === "warning") return <AlertTriangle size={size} className="text-yellow-400" />;
   if (status === "error") return <XCircle size={size} className="text-red-500" />;
   if (status === "running") return <Loader2 size={size} className="text-blue-400 animate-spin" />;
-  if (status === "skipped") return <SkipForward size={size} className="text-zinc-600" />;
-  return <div style={{ width: size, height: size }} className="rounded-full border border-zinc-700" />;
+  if (status === "skipped") return <SkipForward size={size} className="text-[hsl(var(--muted-foreground))]" />;
+  return <div style={{ width: size, height: size }} className="rounded-full border border-[hsl(var(--border))]" />;
 }
 
 // ── Component ────────────────────────────────────────────────────
@@ -222,8 +222,8 @@ export function BuildTimeline({ status, isStreaming, logs, className }: Props) {
                   stage.status === "warning" && "border-yellow-500 bg-yellow-500/10 text-yellow-400",
                   stage.status === "error" && "border-red-500 bg-red-500/10 text-red-500",
                   stage.status === "running" && "border-blue-500 bg-blue-500/10 text-blue-400",
-                  stage.status === "skipped" && "border-zinc-700 bg-zinc-800 text-zinc-600",
-                  stage.status === "pending" && "border-zinc-700 bg-zinc-900 text-zinc-600",
+                  stage.status === "skipped" && "border-[hsl(var(--border))] bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]",
+                  stage.status === "pending" && "border-[hsl(var(--border))] bg-[hsl(var(--secondary))] text-[hsl(var(--muted-foreground))]",
                 )}
               >
                 {stage.status === "running" ? (
@@ -239,7 +239,7 @@ export function BuildTimeline({ status, isStreaming, logs, className }: Props) {
                     stage.status === "success" && "bg-emerald-500/40",
                     stage.status === "warning" && "bg-yellow-500/40",
                     stage.status === "error" && "bg-red-500/40",
-                    (stage.status === "running" || stage.status === "pending" || stage.status === "skipped") && "bg-zinc-700",
+                    (stage.status === "running" || stage.status === "pending" || stage.status === "skipped") && "bg-[hsl(var(--border))]",
                   )}
                 />
               )}
@@ -255,7 +255,7 @@ export function BuildTimeline({ status, isStreaming, logs, className }: Props) {
                     stage.status === "warning" && "text-yellow-400",
                     stage.status === "error" && "text-red-400",
                     stage.status === "running" && "text-blue-400",
-                    (stage.status === "pending" || stage.status === "skipped") && "text-zinc-500",
+                    (stage.status === "pending" || stage.status === "skipped") && "text-[hsl(var(--muted-foreground))]",
                   )}
                 >
                   {stage.name.replace(/_/g, " ")}
@@ -272,12 +272,12 @@ export function BuildTimeline({ status, isStreaming, logs, className }: Props) {
                     return (
                       <div
                         key={`${job.name}-${ji}`}
-                        className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900/60 px-3 py-1.5"
+                        className="flex items-center gap-2 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--secondary))] px-3 py-1.5"
                       >
-                        <JIcon size={12} className="shrink-0 text-zinc-500" />
-                        <span className="text-[11px] font-mono text-zinc-300 flex-1">{job.name}</span>
+                        <JIcon size={12} className="shrink-0 text-[hsl(var(--muted-foreground))]" />
+                        <span className="text-[11px] font-mono text-[hsl(var(--foreground))] flex-1">{job.name}</span>
                         {job.detail && (
-                          <span className="text-[10px] text-zinc-600 font-mono">{job.detail}</span>
+                          <span className="text-[10px] text-[hsl(var(--muted-foreground))] font-mono">{job.detail}</span>
                         )}
                         <StatusIcon status={job.status} size={13} />
                       </div>

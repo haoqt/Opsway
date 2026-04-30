@@ -192,8 +192,8 @@ function BuildContent({ buildId }: { buildId: string }) {
         {/* Main content: log (2/3) + pipeline (1/3) */}
         <div className="flex-1 min-h-0 flex gap-4">
           {/* Build Output — 2/3 */}
-          <div className="flex-[2] min-w-0 flex flex-col rounded-xl border border-[hsl(var(--border))] bg-[#0d1117] overflow-hidden">
-            <div className="flex items-center gap-2 border-b border-[hsl(var(--border))] bg-[#161b22] px-4 py-2">
+          <div className="flex-[2] min-w-0 flex flex-col rounded-xl border border-[hsl(var(--border))] bg-[#282c34] dark:bg-[#0d1117] overflow-hidden">
+            <div className="flex items-center gap-2 border-b border-[hsl(var(--border))] bg-[#2c313a] dark:bg-[#161b22] px-4 py-2">
               <Terminal size={13} className="text-[hsl(var(--muted-foreground))]" />
               <span className="text-xs text-[hsl(var(--muted-foreground))]">Build Output</span>
               {isStreaming && (
