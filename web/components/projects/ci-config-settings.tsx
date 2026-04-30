@@ -10,8 +10,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const FILE_HINTS: Record<string, string> = {
-  ".opsway.yml": "Pipeline definition — stages, runner tags, branch mapping. Equivalent to .gitlab-ci.yml.",
-  "docker-compose.yml": "Container configuration — PostgreSQL & Odoo image versions, ports, network MTU.",
+  ".opsway.yml": "Pipeline definition — stages, deploy services (database/web), branch mapping.",
   "odoo.conf.template": "Odoo server config. Use ${ODOO_ADMIN_PASSWD}, ${DB_PASSWORD}, ${DB_USER} for secrets (envsubst).",
   ".flake8": "Flake8 code style configuration.",
   ".pre-commit-config.yml": "Pre-commit hooks — flake8, pylint-odoo. Runs in code_quality stage.",

@@ -67,7 +67,7 @@ Start the support queues and the FastAPI backend. Docker handles all the Python 
 # Start required infra & python backend
 docker compose up -d postgres redis traefik api worker web minio beat
 ```
-*(Note: Since the API code isn't volume-mounted by default in `docker-compose.yml`, changes to `api/` will require restarting or rebuilding the API container: `docker compose up -d --build api`)*
+*(Note: Since the API code isn't volume-mounted by default, changes to `api/` will require restarting or rebuilding the API container: `docker compose up -d --build api`)*
 
 > [!NOTE]
 > **macOS Traefik Quirk:** On some Macs, Docker Desktop blocks Traefik from correctly reading `/var/run/docker.sock`. If you get a `404 Not Found` at `http://api.localhost/docs`, you can **bypass Traefik completely** by hitting the natively exposed port: **[http://localhost:8000/docs](http://localhost:8000/docs)**.
@@ -126,6 +126,153 @@ The project dashboard uses a **3-column lane system** to group branches by envir
 ### 3. Real-Time Feedback
 - **React Query Polling**: Branch cards poll for metrics (CPU/RAM) and task status every 10-15 seconds.
 - **Status Badges**: Clear visual indicators for `Running`, `Offline`, `Failed`, and `Neutralized` states.
+
+---
+
+## 📋 Pipeline Config — `.opsway.yml`
+
+Mỗi repository được Opsway quản lý cần có file `.opsway.yml` ở root. File này định nghĩa toàn bộ pipeline build: từ code quality, deploy container, đến chạy tests.
+
+### Cấu trúc cơ bản
+
+```yaml
+version: "1"
+
+stages:
+  - code_quality   # optional
+  - deploy
+  - tests          # optional
+
+code_quality:
+  stage: code_quality
+  image: python:3.11
+  script:
+    - pip install pre-commit --quiet
+    - pre-commit run --all-files --config .pre-commit-config.yml
+  allow_failure: true
+
+deploy_development:
+  stage: deploy
+  trigger: opsway       # Opsway quản lý container lifecycle
+  environment: development
+  when: auto            # tự động khi push
+
+deploy_production:
+  stage: deploy
+  trigger: opsway
+  environment: production
+  when: manual          # cần bấm Deploy từ UI
+
+tests:
+  stage: tests
+  exec_in: odoo         # chạy bên trong Odoo container đang chạy
+  script:
+    - odoo --test-enable --test-tags at_install --stop-after-init -d ${DB_NAME}
+  allow_failure: true
+  only:
+    - development       # chỉ chạy cho branch development
+```
+
+### Job types
+
+| Field | Mô tả |
+|---|---|
+| `trigger: opsway` | Deploy job — Opsway quản lý toàn bộ lifecycle (postgres, init DB, Odoo container, rollback) |
+| `image: <img>` | Code quality job — chạy script trong fresh Docker container |
+| `exec_in: odoo` | Test job — chạy script qua `docker exec` bên trong Odoo container đang chạy |
+| `when: auto` | Tự động chạy khi push |
+| `when: manual` | Chỉ chạy khi bấm Deploy từ Opsway UI |
+| `allow_failure: true` | Job fail không block toàn bộ build |
+| `only: [development]` | Chỉ chạy cho những environment nhất định |
+
+---
+
+### Deploy Job — `services:` block
+
+Deploy jobs hỗ trợ khai báo services theo cú pháp tương tự docker-compose. Opsway quản lý toàn bộ vòng đời: DB init, healthcheck, port mapping, rollback tự động.
+
+```yaml
+deploy_development:
+  stage: deploy
+  trigger: opsway
+  environment: development
+  when: auto
+  services:
+    database:
+      image: postgres:15-alpine      # default: postgres:15-alpine
+      shm_size: 1g                   # shared memory cho PostgreSQL
+      volumes:
+        - db_data:/var/lib/postgresql/data/pg_data    # named volume
+        - ./backup:/etc/backup                         # bind mount (phải tồn tại)
+      environment:
+        POSTGRES_USER: ${DB_USER:-odoo}        # ${VAR:-default} syntax
+        POSTGRES_PASSWORD: ${DB_PASSWORD:-odoo}
+        PGDATA: /var/lib/postgresql/data/pg_data
+
+    web:
+      image: odoo:16.0                         # override image mặc định của branch
+      links:
+        - database                             # network alias, optional
+      command: /bin/bash -c "pip3 install -r /opt/requirements.txt --quiet 2>/dev/null; odoo"
+      volumes:
+        - ./requirements.txt:/opt/requirements.txt   # skip nếu file không tồn tại
+        - ./odoo.conf:/etc/odoo/odoo.conf            # skip nếu file không tồn tại
+        - ./addons:/mnt/extra-addons                 # override default repo mount
+      environment:
+        HOST: database             # Opsway luôn override bằng hostname thực
+        USER: ${DB_USER:-odoo}     # propagated từ database service nếu không đặt
+        PASSWORD: ${DB_PASSWORD:-odoo}
+        LIST_DB: "False"
+        SERVER_WIDE_MODULES: "base,web"
+
+    # Service phụ (redis, memcached, ...) — cần có field `image:`
+    redis:
+      image: redis:7-alpine
+      environment:
+        REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+
+    networks:
+      odoo_net:
+        driver_opts:
+          com.docker.network.driver.mtu: 1450  # fix MTU cho một số cloud providers
+```
+
+#### Quy tắc quan trọng
+
+| Hành vi | Chi tiết |
+|---|---|
+| **HOST luôn bị override** | Opsway inject `HOST=<pg_container_name>` sau cùng — khai báo để tài liệu hoá |
+| **Network aliases tự động** | Service name (`database`, `redis`, ...) tự động thành hostname trong network |
+| **Bind mount thiếu file → skip** | Nếu `./odoo.conf` không tồn tại trong repo, volume bị bỏ qua, không lỗi |
+| **`/mnt/extra-addons` override** | Khai báo `./addons:/mnt/extra-addons` sẽ replace default repo mount |
+| **`depends_on` bị ignore** | Opsway đã start postgres trước và wait healthy — không cần khai báo |
+| **Variable resolution** | `${VAR:-default}` resolve từ branch env vars + `PROJECT_NAME`, `BRANCH_NAME` |
+| **Odoo version từ image** | `image: odoo:16.0` tự động set Odoo version = 16 |
+
+#### Khai báo đơn giản (không dùng services block)
+
+```yaml
+deploy_development:
+  stage: deploy
+  trigger: opsway
+  environment: development
+  when: auto
+  image: odoo:17.0          # override image
+  env:
+    LIST_DB: "False"
+    SERVER_WIDE_MODULES: "base,web"
+  volumes:
+    - ./addons:/mnt/extra-addons
+  depends:
+    - name: redis
+      image: redis:7-alpine
+```
+
+#### Biến môi trường trong script
+
+Trong `exec_in: odoo` jobs, các biến sau được inject tự động:
+- `${DB_NAME}` — tên database của branch
+- `${DB_HOST}` — hostname của PostgreSQL container
 
 ---
 

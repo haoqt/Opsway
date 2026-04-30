@@ -25,7 +25,8 @@ import {
   GitBranch, ExternalLink, Rocket, RefreshCw,
   GitCommit, Terminal, Layers, Play, Copy,
   CheckCircle2, AlertCircle, ChevronRight, Database, Database as DatabaseIcon,
-  Globe, Shield, ShieldCheck, Mail, Download, Trash2, Link2, Loader2, Users, UserPlus, Crown, Activity
+  Globe, Shield, ShieldCheck, Mail, Download, Trash2, Link2, Loader2, Users, UserPlus, Crown, Activity,
+  KeyRound, Plus, X
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -413,6 +414,9 @@ export default function ProjectDetailPage() {
 
               {/* Custom Domains */}
               <CustomDomainsSettings project={project} projectId={id} />
+
+              {/* Environment Variables */}
+              <EnvironmentVariablesSettings projectId={id} branches={project.branches ?? []} />
 
               {/* CI Config */}
               <CIConfigSettings projectId={id} odooVersion={project.odoo_version} />
@@ -1158,6 +1162,115 @@ function LoadingSkeleton() {
         </div>
       </div>
     </>
+  );
+}
+
+
+// ── Environment Variables Settings ────────────────────────────
+
+function EnvironmentVariablesSettings({ projectId, branches }: { projectId: string; branches: Branch[] }) {
+  const qc = useQueryClient();
+  const [selectedBranchId, setSelectedBranchId] = React.useState<string>(branches[0]?.id ?? "");
+  const [pairs, setPairs] = React.useState<{ key: string; value: string }[]>([]);
+  const [saved, setSaved] = React.useState(false);
+
+  const selectedBranch = branches.find((b) => b.id === selectedBranchId);
+
+  React.useEffect(() => {
+    const env = selectedBranch?.env_vars ?? {};
+    setPairs(Object.entries(env).map(([key, value]) => ({ key, value })));
+    setSaved(false);
+  }, [selectedBranchId, selectedBranch]);
+
+  const { mutate: saveVars, isPending: isSaving } = useMutation({
+    mutationFn: () => {
+      const env_vars: Record<string, string> = {};
+      for (const { key, value } of pairs) {
+        if (key.trim()) env_vars[key.trim()] = value;
+      }
+      return branchesApi.update(projectId, selectedBranchId, { env_vars });
+    },
+    onSuccess: () => {
+      setSaved(true);
+      qc.invalidateQueries({ queryKey: ["project", projectId] });
+      setTimeout(() => setSaved(false), 2000);
+    },
+  });
+
+  const addRow = () => setPairs((prev) => [...prev, { key: "", value: "" }]);
+  const removeRow = (i: number) => setPairs((prev) => prev.filter((_, idx) => idx !== i));
+  const setKey = (i: number, key: string) => setPairs((prev) => prev.map((p, idx) => idx === i ? { ...p, key } : p));
+  const setValue = (i: number, value: string) => setPairs((prev) => prev.map((p, idx) => idx === i ? { ...p, value } : p));
+
+  if (branches.length === 0) return null;
+
+  return (
+    <Card className="p-4 space-y-4 shadow-sm border-[hsl(var(--border))]">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] flex items-center gap-2">
+          <KeyRound size={12} />
+          Environment Variables
+        </h3>
+        <select
+          value={selectedBranchId}
+          onChange={(e) => setSelectedBranchId(e.target.value)}
+          className="text-[11px] bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded px-2 py-1 text-[hsl(var(--foreground))]"
+        >
+          {branches.map((b) => (
+            <option key={b.id} value={b.id}>{b.name} ({b.environment})</option>
+          ))}
+        </select>
+      </div>
+
+      <p className="text-[10px] text-[hsl(var(--muted-foreground))]">
+        Variables available as <code className="font-mono bg-[hsl(var(--secondary))] px-1 rounded">{"${VAR}"}</code> in{" "}
+        <code className="font-mono">.opsway.yml</code> service blocks.
+      </p>
+
+      <div className="space-y-2">
+        {pairs.map((pair, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <input
+              type="text"
+              placeholder="KEY"
+              value={pair.key}
+              onChange={(e) => setKey(i, e.target.value)}
+              className="flex-1 font-mono text-xs bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded px-2 py-1.5 text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]"
+            />
+            <span className="text-[hsl(var(--muted-foreground))] text-xs">=</span>
+            <input
+              type="text"
+              placeholder="value"
+              value={pair.value}
+              onChange={(e) => setValue(i, e.target.value)}
+              className="flex-[2] font-mono text-xs bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded px-2 py-1.5 text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]"
+            />
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-[hsl(var(--muted-foreground))] hover:text-red-400" onClick={() => removeRow(i)}>
+              <X size={12} />
+            </Button>
+          </div>
+        ))}
+        {pairs.length === 0 && (
+          <p className="text-[11px] text-[hsl(var(--muted-foreground))] italic">No variables yet.</p>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 pt-1">
+        <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1" onClick={addRow}>
+          <Plus size={10} />
+          Add Variable
+        </Button>
+        <Button
+          size="sm"
+          className="h-7 text-[10px]"
+          onClick={() => saveVars()}
+          loading={isSaving}
+          disabled={isSaving}
+        >
+          {saved ? <><CheckCircle2 size={11} className="mr-1" />Saved!</> : "Save Variables"}
+        </Button>
+      </div>
+    </Card>
   );
 }
 

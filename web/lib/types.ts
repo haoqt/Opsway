@@ -84,6 +84,7 @@ export interface Branch {
   is_active: boolean;
   auto_deploy: boolean;
   run_tests: boolean;
+  env_vars: Record<string, string>;
   is_neutralized: boolean;
   neutralized_at: string | null;
   cloned_from_branch_id: string | null;
@@ -148,7 +149,6 @@ export interface UptimeCheck {
 
 export const CI_FILENAMES = [
   ".opsway.yml",
-  "docker-compose.yml",
   "odoo.conf.template",
   ".flake8",
   ".pre-commit-config.yml",

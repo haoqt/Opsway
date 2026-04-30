@@ -14,7 +14,7 @@ exclude: |
   (LICENSE.*|COPYING.*)|
   addons/enterprise/|
   backup/|
-  requirements.txt|odoo.conf.template|docker-compose.yml|docker-compose-gitlab-ci.yml|
+  requirements.txt|odoo.conf.template|docker-compose-gitlab-ci.yml|
   \.pylintrc-mandatory|\.pylintrc|\.prettierrc\.yml|\.pre-commit-config\.yaml|
   \.isort\.cfg|\.gitlab-ci\.yml|\.gitignore|\.flake8|\.eslintrc\.yml|\.eslintrc|
   \.env|\.editorconfig

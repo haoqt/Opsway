@@ -101,6 +101,38 @@ def _find_stage_jobs(cfg: dict, stage: str, environment: str | None = None) -> l
     return jobs
 
 
+# ── Variable resolution ────────────────────────────────────────
+
+def _resolve_volume_paths(volumes: list[str], repo_path: str) -> list[str]:
+    """Convert relative bind-mount sources (./foo) to absolute host paths."""
+    from pathlib import Path
+    result = []
+    for vol in volumes:
+        parts = vol.split(":")
+        if len(parts) >= 2:
+            src = parts[0]
+            if src.startswith("./") or src.startswith("../"):
+                abs_src = str((Path(repo_path) / src).resolve())
+                if settings.host_build_workspace:
+                    abs_src = abs_src.replace(settings.build_workspace, settings.host_build_workspace)
+                parts[0] = abs_src
+        result.append(":".join(parts))
+    return result
+
+
+def _resolve_vars(value: str, context: dict) -> str:
+    """Resolve ${VAR:-default} and ${VAR} placeholders using context dict."""
+    def replace(m: re.Match) -> str:
+        inner = m.group(1)
+        var, _, default = inner.partition(":-")
+        return str(context.get(var.strip(), default))
+    return re.sub(r'\$\{([^}]+)\}', replace, str(value))
+
+
+def _resolve_env_dict(env: dict, context: dict) -> dict:
+    return {k: _resolve_vars(str(v), context) for k, v in env.items() if v is not None}
+
+
 # ── Job executors ──────────────────────────────────────────────
 
 def _worker_container_id() -> str | None:
@@ -247,6 +279,86 @@ def _execute_opsway_deploy(
     env_value = job.get("environment", branch.environment.value)
     log(f"🚀 [{job['_name']}] Deploying to {env_value}...")
 
+    # ── Job-level service config ───────────────────────────────────────────
+    services_block: dict = job.get("services") or {}
+    # networks can appear at job level or inside services block
+    networks_block: dict = job.get("networks") or services_block.get("networks") or {}
+
+    # Variable resolution context: project/branch env + built-ins
+    var_ctx = {
+        "PROJECT_NAME": project.slug,
+        "BRANCH_NAME": branch.name,
+        **(branch.env_vars or {}),
+    }
+
+    # ── Parse network options (MTU etc.) ──────────────────────────────────
+    network_driver_opts: dict | None = None
+    for _net_cfg in networks_block.values():
+        if isinstance(_net_cfg, dict):
+            _dopts = _net_cfg.get("driver_opts") or {}
+            if _dopts:
+                network_driver_opts = {k: str(v) for k, v in _dopts.items()}
+                break
+
+    if services_block:
+        # ── services: block (compose-style) ───────────────────────────────
+        # Identify which key is used for postgres ("database" or "db")
+        db_svc_key = "database" if "database" in services_block else ("db" if "db" in services_block else "database")
+        db_svc: dict = services_block.get(db_svc_key) or {}
+        web_svc: dict = services_block.get("web") or services_block.get("odoo") or {}
+
+        # Postgres config from database service
+        pg_image_override: str = db_svc.get("image") or "postgres:15-alpine"
+        pg_shm_size: str | None = db_svc.get("shm_size")
+        pg_env_raw = _resolve_env_dict(db_svc.get("environment") or {}, var_ctx)
+        pg_volumes: list[str] = db_svc.get("volumes") or []
+
+        # Odoo (web) config from web service
+        job_image: str | None = web_svc.get("image") or job.get("image")
+        web_env_raw = {
+            **(web_svc.get("environment") or {}),
+            **(web_svc.get("env") or {}),
+        }
+        job_extra_env = _resolve_env_dict(web_env_raw, var_ctx)
+        # Note: HOST is declared by user for documentation but docker_manager always
+        # re-applies env["HOST"] = db_host last — no filtering needed.
+        # Propagate custom pg credentials into Odoo env if user didn't set them explicitly
+        if "POSTGRES_USER" in pg_env_raw and "USER" not in job_extra_env:
+            job_extra_env["USER"] = pg_env_raw["POSTGRES_USER"]
+        if "POSTGRES_PASSWORD" in pg_env_raw and "PASSWORD" not in job_extra_env:
+            job_extra_env["PASSWORD"] = pg_env_raw["POSTGRES_PASSWORD"]
+
+        job_volumes: list[str] = web_svc.get("volumes") or job.get("volumes") or []
+        job_command = web_svc.get("command") or job.get("command")
+
+        # Extra services (anything that isn't database/db/web/odoo/networks and has an image)
+        _reserved = {"database", "db", "web", "odoo", "networks"}
+        extra_services: list[dict] = [
+            {"name": k, **v}
+            for k, v in services_block.items()
+            if k not in _reserved and isinstance(v, dict) and "image" in v
+        ]
+    else:
+        # ── Flat fields (legacy / simple) ─────────────────────────────────
+        db_svc_key = "database"
+        pg_image_override = "postgres:15-alpine"
+        pg_shm_size = None
+        pg_env_raw = {}
+        pg_volumes = []
+        job_image = job.get("image")
+        raw_env = job.get("env") or {}
+        job_extra_env = {k: str(v) for k, v in raw_env.items() if v is not None} if isinstance(raw_env, dict) else {}
+        job_volumes = job.get("volumes") or []
+        job_command = None
+        extra_services = job.get("depends") or []
+
+    # Resolve relative paths in volume declarations before passing to Docker SDK
+    pg_volumes = _resolve_volume_paths(pg_volumes, local_path)
+    job_volumes = _resolve_volume_paths(job_volumes, local_path)
+
+    if job_image:
+        log(f"   📦 Image: {job_image}")
+
     # ── Detect Odoo version ────────────────────────────────────
     odoo_version = (
         branch.odoo_version
@@ -254,6 +366,14 @@ def _execute_opsway_deploy(
         or detect_odoo_version(local_path)
         or "17"
     )
+    # If image tag declares a version (e.g. "odoo:15.0", "myregistry/odoo:17.0-custom")
+    # extract it as the authoritative Odoo version — full "15.0" form preferred over bare "15"
+    if job_image:
+        _vm = re.search(r':(\d+\.\d+)', job_image)
+        if not _vm:
+            _vm = re.search(r':(\d+)', job_image)
+        if _vm:
+            odoo_version = _vm.group(1)
     log(f"   Odoo version: {odoo_version}")
 
     # ── Check manifest version bumps ──────────────────────────
@@ -267,35 +387,63 @@ def _execute_opsway_deploy(
 
     # ── Ensure project network ─────────────────────────────────
     log("🌐 Setting up container network...")
-    docker.ensure_project_network(project.slug)
+    docker.ensure_project_network(project.slug, driver_opts=network_driver_opts)
 
     # ── Start PostgreSQL ───────────────────────────────────────
     db_name = f"opsway_{project.slug}_{branch.name.replace('/', '_')}"
-    log(f"🐘 Starting PostgreSQL (db: {db_name})...")
-    pg_container, pg_host = docker.start_postgres_container(project.slug, branch.name, db_name)
+    log(f"🐘 Starting PostgreSQL (db: {db_name}, image={pg_image_override})...")
+    pg_container, pg_host = docker.start_postgres_container(
+        project.slug, branch.name, db_name,
+        pg_image=pg_image_override,
+        shm_size=pg_shm_size,
+        extra_env=pg_env_raw or None,
+        extra_volumes=pg_volumes or None,
+    )
 
+    _pg_user = pg_env_raw.get("POSTGRES_USER", "odoo")
     log("   Waiting for PostgreSQL to be ready...")
-    for _ in range(30):
-        time.sleep(2)
-        pg_container.reload()
-        if pg_container.status == "running":
-            exit_code, _ = docker.exec_command(pg_container.name, f"pg_isready -U odoo -d {db_name}")
-            if exit_code == 0:
-                break
+    for _ in range(40):
+        time.sleep(3)
+        try:
+            pg_container.reload()
+            if pg_container.status == "running":
+                exit_code, _ = docker.exec_command(pg_container.name, f"pg_isready -U {_pg_user} -d {db_name}")
+                if exit_code == 0:
+                    break
+        except Exception:
+            pass  # container may be starting/restarting — retry
     log("✅ PostgreSQL ready")
 
+    # Set service name as network alias so web can reach it by short name (e.g. HOST=database)
+    docker.add_network_aliases(pg_container, project.slug, [db_svc_key])
+
+    # ── Start extra services (redis, memcached, etc.) ──────────
+    for svc in extra_services:
+        try:
+            svc_name = svc.get("name") or svc.get("image", "").split(":")[0].split("/")[-1]
+            log(f"🔗 Starting service: {svc_name}")
+            svc_container = docker.start_depends_container(project.slug, branch.name, svc)
+            docker.add_network_aliases(svc_container, project.slug, [svc_name])
+            log(f"   ✅ {svc_name} ready")
+        except Exception as e:
+            log(f"⚠️  Could not start service {svc.get('name')}: {e}")
+
     # ── Build Odoo container config ────────────────────────────
+    merged_env = {**(branch.env_vars or {}), **job_extra_env}
     odoo_config = OdooContainerConfig(
         project_slug=project.slug,
         branch_name=branch.name,
         odoo_version=odoo_version,
         db_name=db_name,
         environment=branch.environment.value,
-        extra_env=branch.env_vars or {},
+        extra_env=merged_env,
         repo_path=str(local_path),
         mailhog_host=settings.mailhog_host,
         mailhog_smtp_port=settings.mailhog_smtp_port,
         custom_domain=project.custom_domain if project.custom_domain_verified else None,
+        odoo_image=job_image,
+        extra_volumes=job_volumes or None,
+        command_override=job_command or None,
     )
 
     # ── Preserve preferred port ────────────────────────────────
@@ -322,14 +470,14 @@ def _execute_opsway_deploy(
 
     try:
         # ── DB init or module upgrades ─────────────────────────
-        is_initialized = _is_db_initialized(docker, pg_container.name, db_name)
+        is_initialized = _is_db_initialized(docker, pg_container.name, db_name, _pg_user)
 
         if not is_initialized:
             log("🆕 Fresh database — initialising Odoo schema...")
             log("   (This may take 1-2 minutes)")
             init_cfg = OdooContainerConfig(
                 **{k: v for k, v in odoo_config.__dict__.items()
-                   if k not in ("init_db", "upgrade_modules")},
+                   if k not in ("init_db", "upgrade_modules", "command_override")},
                 init_db=True,
             )
             _, _, init_logs = docker.start_odoo_container(init_cfg)
@@ -343,7 +491,7 @@ def _execute_opsway_deploy(
                 log(f"⬆️  Upgrading modules: {mods}")
                 upgrade_cfg = OdooContainerConfig(
                     **{k: v for k, v in odoo_config.__dict__.items()
-                       if k not in ("init_db", "upgrade_modules")},
+                       if k not in ("init_db", "upgrade_modules", "command_override")},
                     upgrade_modules=bumped_modules,
                 )
                 _, _, upg_logs = docker.start_odoo_container(upgrade_cfg)
@@ -434,11 +582,11 @@ def _sync_ci_files_from_repo(session, project_id, local_path, log):
         log(f"📋 Synced from repo: {', '.join(synced)}")
 
 
-def _is_db_initialized(docker: DockerManager, pg_container_name: str, db_name: str) -> bool:
+def _is_db_initialized(docker: DockerManager, pg_container_name: str, db_name: str, pg_user: str = "odoo") -> bool:
     check_query = "SELECT 1 FROM information_schema.tables WHERE table_name = 'ir_module_module';"
     exit_code, output = docker.exec_command(
         pg_container_name,
-        f'psql -U odoo -d {db_name} -c "{check_query}"',
+        f'psql -U {pg_user} -d {db_name} -c "{check_query}"',
     )
     return exit_code == 0 and "1 row" in output
 
@@ -647,6 +795,8 @@ def trigger_build(self, build_id: str, branch_id: str):
                             # Persist container info to DB immediately
                             branch.container_name = deploy_ctx["odoo_container"].name
                             branch.db_name = deploy_ctx["db_name"]
+                            if deploy_ctx.get("odoo_version"):
+                                branch.odoo_version = deploy_ctx["odoo_version"]
                             session.commit()
                             log(f"✅ [{job['_name']}] deployed")
 

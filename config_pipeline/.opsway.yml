@@ -1,15 +1,12 @@
 version: "1"
 
-# Stages executed by Opsway on each build, in order.
-# Remove a stage name to skip all jobs in that stage.
 stages:
   - code_quality
   - deploy
   - tests
 
 # ── Code Quality ───────────────────────────────────────────────────────────────
-# Runs pre-commit hooks inside an isolated Python container before deploy.
-# 'allow_failure: true' means lint issues are logged but do not block the build.
+
 code_quality:
   stage: code_quality
   image: python:3.11
@@ -20,33 +17,76 @@ code_quality:
   allow_failure: true
 
 # ── Deploy ─────────────────────────────────────────────────────────────────────
-# 'trigger: opsway' — Opsway manages the full container lifecycle (postgres +
-# odoo, DB init/upgrade, healthcheck, rollback) via Docker SDK.
-# 'compose_file' tells Opsway which docker-compose.yml to read for image & network config.
+# trigger: opsway — Opsway quản lý toàn bộ vòng đời container.
+#
+# services:
+#   database:      PostgreSQL — Opsway kiểm soát tên DB, healthcheck, init schema
+#   web:           Odoo — Opsway inject HOST, quản lý port, rollback
+#   <tên khác>:    Service phụ (redis, …) — cần có field `image:`
+#   networks:      Tuỳ chỉnh project network (driver_opts, MTU, …)
+#
+# web.links:       Danh sách service muốn kết nối (tên service tự động thành hostname)
+#                  Opsway thêm alias vào network, không cần khai báo links cũng được
+#
+# Các field tự động được bỏ qua (Opsway quản lý):
+#   depends_on, networks (trong từng service), container_name, restart
+#
+# Biến môi trường hỗ trợ cú pháp: ${VAR:-default}
+# Built-in vars: PROJECT_NAME, BRANCH_NAME + tất cả env vars của branch
+#
+# Lưu ý về HOST trong web.environment:
+#   - Khai báo để tài liệu hoá, Opsway luôn override bằng hostname thực của postgres
+
 deploy_development:
   stage: deploy
   trigger: opsway
   environment: development
-  compose_file: docker-compose.yml
   when: auto
+  services:
+    database:
+      image: postgres:15-alpine
+      shm_size: 1g
+      volumes:
+        - db_data:/var/lib/postgresql/data/pg_data
+        - ./backup:/etc/backup
+      environment:
+        POSTGRES_USER: ${DB_USER:-odoo}
+        POSTGRES_PASSWORD: ${DB_PASSWORD:-odoo}
+        PGDATA: /var/lib/postgresql/data/pg_data
+    web:
+      image: odoo:16.0
+      links:
+        - database
+      command: /bin/bash -c "pip3 install -r /opt/requirements.txt --quiet 2>/dev/null; odoo"
+      volumes:
+        - ./requirements.txt:/opt/requirements.txt
+        - ./odoo.conf:/etc/odoo/odoo.conf
+        - ./addons:/mnt/extra-addons
+      environment:
+        HOST: database
+        USER: ${DB_USER:-odoo}
+        PASSWORD: ${DB_PASSWORD:-odoo}
+        LIST_DB: "False"
+        SERVER_WIDE_MODULES: "base,web"
+    networks:
+      odoo_net:
+        driver_opts:
+          com.docker.network.driver.mtu: 1450
 
 deploy_staging:
   stage: deploy
   trigger: opsway
   environment: staging
-  compose_file: docker-compose.yml
   when: auto
 
 deploy_production:
   stage: deploy
   trigger: opsway
   environment: production
-  compose_file: docker-compose.yml
-  when: manual                   # requires a manual trigger from the Opsway UI
+  when: manual
 
 # ── Tests ──────────────────────────────────────────────────────────────────────
-# 'exec_in: odoo' — script runs via docker exec inside the running Odoo container.
-# Only executes for development environment branches.
+
 tests:
   stage: tests
   exec_in: odoo

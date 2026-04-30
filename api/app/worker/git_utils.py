@@ -111,7 +111,7 @@ def detect_odoo_version(repo_path: Path) -> str | None:
     if version_file.exists():
         ver = version_file.read_text().strip()
         major = ver.split(".")[0]
-        if major in ("16", "17", "18"):
+        if major in ("15", "16", "17", "18"):
             return major
 
     # Search __manifest__.py files
@@ -125,7 +125,7 @@ def detect_odoo_version(repo_path: Path) -> str | None:
                 match = re.match(r"^(\d+)\.", ver_str)
                 if match:
                     major = match.group(1)
-                    if major in ("16", "17", "18"):
+                    if major in ("15", "16", "17", "18"):
                         return major
         except Exception:
             continue
@@ -134,7 +134,7 @@ def detect_odoo_version(repo_path: Path) -> str | None:
     req_file = repo_path / "requirements.txt"
     if req_file.exists():
         content = req_file.read_text().lower()
-        for ver in ("18", "17", "16"):
+        for ver in ("18", "17", "16", "15"):
             if f"odoo=={ver}" in content or f"odoo~={ver}" in content:
                 return ver
 

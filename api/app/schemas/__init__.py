@@ -91,7 +91,7 @@ class ProjectCreate(BaseModel):
     description: str | None = None
     git_provider: GitProvider = GitProvider.GITHUB
     repo_full_name: str = Field(..., description="owner/repo format")
-    odoo_version: str | None = Field(None, description="16, 17, or 18")
+    odoo_version: str | None = Field(None, description="15, 16, 17, or 18")
     custom_addons_path: str = "custom_addons"
     build_limit_dev: int = 5
     build_limit_staging: int = 2
@@ -196,6 +196,7 @@ class BranchOut(BaseModel):
     is_active: bool
     auto_deploy: bool
     run_tests: bool
+    env_vars: dict[str, str] = {}
     is_neutralized: bool = False
     neutralized_at: datetime | None = None
     cloned_from_branch_id: uuid.UUID | None = None

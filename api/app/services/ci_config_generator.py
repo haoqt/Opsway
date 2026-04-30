@@ -128,26 +128,55 @@ code_quality:
 # ── Deploy ─────────────────────────────────────────────────────────────────────
 # 'trigger: opsway' — Opsway manages the full container lifecycle (postgres +
 # odoo, DB init/upgrade, healthcheck, rollback) via Docker SDK.
-# 'compose_file' tells Opsway which docker-compose.yml to read for image & network config.
+#
+# Khai báo services trực tiếp trong .opsway.yml (không cần docker-compose.yml):
+#   services:
+#     database:   PostgreSQL config (image, shm_size, environment, volumes)
+#     web:        Odoo config (image, command, environment, volumes)
+#     networks:   Network options (driver_opts, MTU)
+#
+# Biến môi trường hỗ trợ ${{VAR:-default}} — resolve từ branch env vars.
 deploy_development:
   stage: deploy
   trigger: opsway
   environment: development
-  compose_file: docker-compose.yml
   when: auto
+  services:
+    database:
+      image: {postgres_img}
+      shm_size: 1g
+      environment:
+        POSTGRES_USER: ${{DB_USER:-odoo}}
+        POSTGRES_PASSWORD: ${{DB_PASSWORD:-odoo}}
+        PGDATA: /var/lib/postgresql/data/pg_data
+      volumes:
+        - db_data:/var/lib/postgresql/data/pg_data
+    web:
+      image: {odoo_img}
+      command: /bin/bash -c "pip3 install -r /opt/requirements.txt --quiet 2>/dev/null; odoo"
+      volumes:
+        - ./requirements.txt:/opt/requirements.txt
+        - ./odoo.conf:/etc/odoo/odoo.conf
+        - ./addons:/mnt/extra-addons
+      environment:
+        HOST: database
+        USER: ${{DB_USER:-odoo}}
+        PASSWORD: ${{DB_PASSWORD:-odoo}}
+    networks:
+      odoo_net:
+        driver_opts:
+          com.docker.network.driver.mtu: {mtu}
 
 deploy_staging:
   stage: deploy
   trigger: opsway
   environment: staging
-  compose_file: docker-compose.yml
   when: auto
 
 deploy_production:
   stage: deploy
   trigger: opsway
   environment: production
-  compose_file: docker-compose.yml
   when: manual                   # requires a manual trigger from the Opsway UI
 
 # ── Tests ──────────────────────────────────────────────────────────────────────
@@ -166,77 +195,6 @@ tests:
 
 # Keep old name as alias for any stored content referencing it
 generate_gitlab_ci = generate_opsway_yml
-
-
-def generate_docker_compose(config: dict, project_odoo_version: str | None) -> str:
-    d = config["docker"]
-    o = config["odoo"]
-    postgres_img = d.get("postgres_image", "postgres:15-alpine")
-    odoo_img = _odoo_image(d, project_odoo_version)
-    mtu = d.get("network_mtu", 1450)
-    workers = o.get("workers", 4)
-
-    return f"""\
-# docker-compose.yml — local development / self-managed deployment
-# Images must match .opsway.yml docker section.
-# Secrets come from a .env file: DB_USER, DB_PASSWORD, ODOO_ADMIN_PASSWD
-# Run: envsubst < odoo.conf.template > odoo.conf  before starting.
-
-services:
-  database:
-    image: {postgres_img}
-    container_name: ${{PROJECT_NAME:-opsway}}_db
-    shm_size: 1g
-    volumes:
-      - db_data:/var/lib/postgresql/data/pg_data
-      - ./backup:/etc/backup
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: postgres
-      POSTGRES_USER: ${{DB_USER:-odoo}}
-      POSTGRES_PASSWORD: ${{DB_PASSWORD:-odoo}}
-      PGDATA: /var/lib/postgresql/data/pg_data
-    networks:
-      - odoo_net
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${{DB_USER:-odoo}}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  web:
-    image: {odoo_img}
-    container_name: ${{PROJECT_NAME:-opsway}}_web
-    depends_on:
-      database:
-        condition: service_healthy
-    volumes:
-      - ./requirements.txt:/opt/requirements.txt
-      - ./odoo.conf:/etc/odoo/odoo.conf
-      - ./addons:/mnt/extra-addons
-      - odoo_data:/var/lib/odoo
-    command: /bin/bash -c "pip3 install -r /opt/requirements.txt --quiet && odoo"
-    environment:
-      HOST: database
-      USER: ${{DB_USER:-odoo}}
-      PASSWORD: ${{DB_PASSWORD:-odoo}}
-    restart: unless-stopped
-    ports:
-      - "8069:8069"
-      - "8072:8072"
-    networks:
-      - odoo_net
-
-volumes:
-  db_data:
-  odoo_data:
-
-networks:
-  odoo_net:
-    driver: bridge
-    driver_opts:
-      com.docker.network.driver.mtu: {mtu}
-"""
 
 
 def generate_odoo_conf_template(config: dict) -> str:
@@ -359,7 +317,7 @@ exclude: |
   (LICENSE.*|COPYING.*)|
   addons/enterprise/|{extra_excludes}
   backup/|
-  requirements.txt|odoo.conf.template|docker-compose.yml|docker-compose-gitlab-ci.yml|
+  requirements.txt|odoo.conf.template|docker-compose-gitlab-ci.yml|
   \\.pylintrc-mandatory|\\.pylintrc|\\.prettierrc\\.yml|\\.pre-commit-config\\.yaml|
   \\.isort\\.cfg|\\.gitlab-ci\\.yml|\\.gitignore|\\.flake8|\\.eslintrc\\.yml|\\.eslintrc|
   \\.env|\\.editorconfig
@@ -495,7 +453,6 @@ def generate_pylintrc_mandatory(config: dict) -> str:
 
 CI_FILENAMES = [
     ".opsway.yml",
-    "docker-compose.yml",
     "odoo.conf.template",
     ".flake8",
     ".pre-commit-config.yml",
@@ -505,7 +462,6 @@ CI_FILENAMES = [
 
 FILENAME_GENERATORS = {
     ".opsway.yml": generate_opsway_yml,
-    "docker-compose.yml": generate_docker_compose,
     "odoo.conf.template": generate_odoo_conf_template,
     ".flake8": generate_flake8,
     ".pre-commit-config.yml": generate_pre_commit_config,

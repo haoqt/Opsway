@@ -20,6 +20,7 @@ settings = get_settings()
 
 
 ODOO_VERSION_IMAGES = {
+    "15": settings.odoo_image_v15,
     "16": settings.odoo_image_v16,
     "17": settings.odoo_image_v17,
     "18": settings.odoo_image_v18,
@@ -43,6 +44,9 @@ class OdooContainerConfig:
     upgrade_modules: list[str] = None  # if set, runs with -u module1,module2 --stop-after-init
     custom_domain: str | None = None  # e.g. "erp.mycompany.com"
     preferred_port: int | None = None
+    odoo_image: str | None = None          # explicit image override
+    extra_volumes: list[str] = None        # extra mounts: ["./path:/container/path:ro", ...]
+    command_override: str | list | None = None  # replaces default odoo command for persistent run
 
 
 class DockerManager:
@@ -172,16 +176,30 @@ class DockerManager:
 
     # ── Network ────────────────────────────────────────────────
 
-    def ensure_project_network(self, project_slug: str) -> str:
+    def ensure_project_network(self, project_slug: str, driver_opts: dict | None = None) -> str:
         """Create isolated network for project if not exists."""
         name = self._network_name(project_slug)
         try:
             net = self.client.networks.get(name)
             logger.info(f"Network exists: {name}")
         except NotFound:
-            net = self.client.networks.create(name, driver="bridge")
-            logger.info(f"Created network: {name}")
+            create_kwargs: dict = {"driver": "bridge"}
+            if driver_opts:
+                create_kwargs["options"] = driver_opts
+            net = self.client.networks.create(name, **create_kwargs)
+            logger.info(f"Created network: {name} opts={driver_opts or {}}")
         return name
+
+    def add_network_aliases(self, container: Container, project_slug: str, aliases: list[str]) -> None:
+        """Add hostname aliases for a container on the project network (e.g. 'database')."""
+        network_name = self._network_name(project_slug)
+        try:
+            net = self.client.networks.get(network_name)
+            net.disconnect(container)
+            net.connect(container, aliases=aliases)
+            logger.info(f"Network aliases {aliases} → {container.name}")
+        except Exception as e:
+            logger.warning(f"Could not set network aliases {aliases} for {container.name}: {e}")
 
     def remove_project_network(self, project_slug: str):
         name = self._network_name(project_slug)
@@ -192,10 +210,60 @@ class DockerManager:
         except NotFound:
             pass
 
+    # ── Depends services ──────────────────────────────────────
+
+    def start_depends_container(
+        self, project_slug: str, branch_name: str, svc: dict
+    ) -> Container:
+        """Start an extra service declared under 'depends' in .opsway.yml."""
+        svc_name = svc.get("name") or svc.get("image", "svc").split(":")[0].split("/")[-1]
+        safe_project = project_slug.replace("_", "-").lower()
+        safe_branch = branch_name.replace("/", "-").replace("_", "-").lower()
+        name = f"{settings.opsway_network_prefix}-{safe_project}-{safe_branch}-{svc_name}"
+        network = self._network_name(project_slug)
+
+        try:
+            c = self.client.containers.get(name)
+            if c.status != "running":
+                c.start()
+            return c
+        except NotFound:
+            pass
+
+        env = {}
+        raw_env = svc.get("env") or {}
+        if isinstance(raw_env, dict):
+            env = {k: str(v) for k, v in raw_env.items() if v is not None}
+
+        volumes = {}
+        for vol_str in (svc.get("volumes") or []):
+            parts = vol_str.split(":")
+            if len(parts) >= 2:
+                volumes[parts[0]] = {"bind": parts[1], "mode": parts[2] if len(parts) >= 3 else "rw"}
+
+        container = self.client.containers.run(
+            svc["image"],
+            name=name,
+            environment=env,
+            volumes=volumes or None,
+            network=network,
+            labels={"opsway.managed": "true", "opsway.project": project_slug,
+                    "opsway.branch": branch_name, "opsway.type": "depends"},
+            detach=True,
+            restart_policy={"Name": "unless-stopped"},
+        )
+        logger.info(f"Started depends container: {name}")
+        return container
+
     # ── PostgreSQL container for Odoo ──────────────────────────
 
     def start_postgres_container(
-        self, project_slug: str, branch_name: str, db_name: str
+        self, project_slug: str, branch_name: str, db_name: str,
+        *,
+        pg_image: str = "postgres:15-alpine",
+        shm_size: str | None = None,
+        extra_env: dict | None = None,
+        extra_volumes: list[str] | None = None,
     ) -> tuple[Container, str]:
         """Start a dedicated PostgreSQL container for an Odoo instance."""
         name = self.get_db_container_name(project_slug, branch_name)
@@ -210,14 +278,30 @@ class DockerManager:
         except NotFound:
             pass
 
-        container = self.client.containers.run(
-            "postgres:15-alpine",
+        env = {
+            "POSTGRES_DB": db_name,
+            "POSTGRES_USER": "odoo",
+            "POSTGRES_PASSWORD": "odoo",
+        }
+        if extra_env:
+            env.update(extra_env)
+        # Opsway always controls these to keep Odoo connectivity consistent
+        env["POSTGRES_DB"] = db_name
+
+        import os as _os
+        volumes = {}
+        for vol_str in (extra_volumes or []):
+            parts = vol_str.split(":")
+            if len(parts) >= 2:
+                src = parts[0]
+                if src.startswith("/") and not _os.path.exists(src):
+                    logger.warning(f"Skipping postgres volume: {src} not found")
+                    continue
+                volumes[src] = {"bind": parts[1], "mode": parts[2] if len(parts) >= 3 else "rw"}
+
+        run_kwargs: dict = dict(
             name=name,
-            environment={
-                "POSTGRES_DB": db_name,
-                "POSTGRES_USER": "odoo",
-                "POSTGRES_PASSWORD": "odoo",
-            },
+            environment=env,
             labels={
                 "opsway.managed": "true",
                 "opsway.project": project_slug,
@@ -225,10 +309,15 @@ class DockerManager:
                 "opsway.type": "database",
             },
             network=network,
+            volumes=volumes or None,
             detach=True,
             restart_policy={"Name": "unless-stopped"},
         )
-        logger.info(f"Started postgres container: {name}")
+        if shm_size:
+            run_kwargs["shm_size"] = shm_size
+
+        container = self.client.containers.run(pg_image, **run_kwargs)
+        logger.info(f"Started postgres container: {name} image={pg_image}")
         return container, name
 
     # ── Odoo Container ─────────────────────────────────────────
@@ -238,8 +327,23 @@ class DockerManager:
         name = self.get_container_name(config.project_slug, config.branch_name)
         network = self._network_name(config.project_slug)
         db_host = self.get_db_container_name(config.project_slug, config.branch_name)
-        image = ODOO_VERSION_IMAGES.get(config.odoo_version, settings.odoo_image_v17)
-        
+        default_image = ODOO_VERSION_IMAGES.get(config.odoo_version, settings.odoo_image_v17)
+        image = config.odoo_image or default_image
+
+        # Verify compose image is pullable; fall back to default on error
+        if config.odoo_image:
+            try:
+                self.client.images.get(config.odoo_image)
+            except docker.errors.ImageNotFound:
+                try:
+                    parts = config.odoo_image.rsplit(":", 1)
+                    repo, tag = (parts[0], parts[1]) if len(parts) == 2 else (parts[0], "latest")
+                    self.client.images.pull(repo, tag=tag)
+                    logger.info(f"Pulled compose image: {config.odoo_image}")
+                except Exception as e:
+                    logger.warning(f"Cannot pull compose image {config.odoo_image}: {e}. Using default {default_image}")
+                    image = default_image
+
         # Find a host port for NAT
         # 1. Try to reuse existing port if container already exists
         host_port = self.get_container_host_port(name, config.project_slug, config.branch_name)
@@ -275,6 +379,8 @@ class DockerManager:
 
         if config.extra_env:
             env.update(config.extra_env)
+        # Opsway always controls the DB host — overwrite any user-supplied value
+        env["HOST"] = db_host
 
         # Traefik labels for auto-routing
         labels = {
@@ -307,29 +413,70 @@ class DockerManager:
         filestore_vol = f"opsway_filestore_{config.project_slug}_{safe_branch}"
         volumes[filestore_vol] = {"bind": "/var/lib/odoo", "mode": "rw"}
 
-        # 2. Source Code Volume
-        if config.repo_path:
-            # If we are running in Docker-out-of-Docker (e.g. Mac/Prod), 
-            # we must provide the HOST path to the Docker daemon.
+        # Extra volumes declared in .opsway.yml (processed first to detect overrides)
+        extra_bind_dsts: set[str] = set()
+        if config.extra_volumes:
+            import os
+            from pathlib import Path
+            for vol_str in config.extra_volumes:
+                parts = vol_str.split(":")
+                if len(parts) >= 2:
+                    host_src = parts[0]
+                    bind_dst = parts[1]
+                    mode = parts[2] if len(parts) >= 3 else "rw"
+                    if host_src.startswith("./") or host_src.startswith("../"):
+                        abs_src = str((Path(config.repo_path) / host_src).resolve())
+                        if settings.host_build_workspace:
+                            abs_src = abs_src.replace(settings.build_workspace, settings.host_build_workspace)
+                        host_src = abs_src
+                    # Skip bind mounts whose source path doesn't exist on the host
+                    # (named volumes like "db_data" don't start with "/" — always pass through)
+                    if host_src.startswith("/") and not os.path.exists(host_src):
+                        logger.warning(f"Skipping volume mount: {host_src} not found (declare in repo first)")
+                        continue
+                    volumes[host_src] = {"bind": bind_dst, "mode": mode}
+                    extra_bind_dsts.add(bind_dst)
+
+        # Source Code Volume — skip if user already mounted something at /mnt/extra-addons
+        if config.repo_path and "/mnt/extra-addons" not in extra_bind_dsts:
             if settings.host_build_workspace:
                 host_path = config.repo_path.replace(settings.build_workspace, settings.host_build_workspace)
             else:
                 host_path = config.repo_path
-                
             volumes[host_path] = {
                 "bind": "/mnt/extra-addons",
                 "mode": "ro" if config.environment == "production" else "rw",
             }
 
         # Construction of the start command
-        command = ["odoo", "-d", config.db_name]
-
-        if config.init_db:
-            command += ["-i", "base", "--stop-after-init"]
-            is_temp_run = True
-        elif config.upgrade_modules:
-            command += ["-u", ",".join(config.upgrade_modules), "--stop-after-init"]
-            is_temp_run = True
+        if is_temp_run:
+            # Always use canonical odoo command for init/upgrade runs
+            command = ["odoo", "-d", config.db_name]
+            if config.init_db:
+                command += ["-i", "base", "--stop-after-init"]
+            elif config.upgrade_modules:
+                command += ["-u", ",".join(config.upgrade_modules), "--stop-after-init"]
+        elif config.command_override:
+            # User-supplied command bypasses the Odoo entrypoint which normally injects
+            # --db_host / --db_user / --db_password. Auto-inject all missing DB flags.
+            import re as _re
+            cmd = (config.command_override if isinstance(config.command_override, str)
+                   else " ".join(config.command_override))
+            if _re.search(r'\bodoo\b', cmd):
+                inject = ""
+                if " -d " not in cmd and "--database " not in cmd:
+                    inject += f" -d {config.db_name}"
+                if "--db_host" not in cmd:
+                    inject += f" --db_host {db_host}"
+                if "--db_user" not in cmd:
+                    inject += f" --db_user {env.get('USER', 'odoo')}"
+                if "--db_password" not in cmd:
+                    inject += f" --db_password {env.get('PASSWORD', 'odoo')}"
+                if inject:
+                    cmd = _re.sub(r'(\bodoo\b)', rf'\1{inject}', cmd, count=1)
+            command = ["sh", "-c", cmd]
+        else:
+            command = ["odoo", "-d", config.db_name]
             
         container = self.client.containers.run(
             image,
@@ -405,8 +552,11 @@ class DockerManager:
         c = self.get_container(name_or_id)
         if not c:
             return 1, f"Container {name_or_id} not found"
-        result = c.exec_run(command, demux=False)
-        return result.exit_code, result.output.decode("utf-8", errors="replace")
+        try:
+            result = c.exec_run(command, demux=False)
+            return result.exit_code, result.output.decode("utf-8", errors="replace")
+        except APIError as e:
+            return 1, str(e)
 
     # ── Image management ───────────────────────────────────────
 

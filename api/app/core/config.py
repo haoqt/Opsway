@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     max_concurrent_builds: int = 5
 
     # Odoo images
+    odoo_image_v15: str = "odoo:15.0"
     odoo_image_v16: str = "odoo:16.0"
     odoo_image_v17: str = "odoo:17.0"
     odoo_image_v18: str = "odoo:18.0"
@@ -74,6 +75,7 @@ class Settings(BaseSettings):
     @property
     def odoo_images(self) -> dict[str, str]:
         return {
+            "15": self.odoo_image_v15,
             "16": self.odoo_image_v16,
             "17": self.odoo_image_v17,
             "18": self.odoo_image_v18,

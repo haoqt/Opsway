@@ -11,9 +11,10 @@ import { formatDuration, shortSha } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import {
   Terminal, GitCommit, Clock, CheckCircle2,
-  AlertCircle, Download, Square, RotateCcw, Loader2
+  AlertCircle, Download, Square, RotateCcw, Loader2, Zap
 } from "lucide-react";
 import { BuildTimeline } from "@/components/builds/build-timeline";
+import { OdooVersionBadge } from "@/components/ui/badges";
 
 // ── Page shell — only resolves buildId, passes it as key to content ──
 
@@ -149,7 +150,7 @@ function BuildContent({ buildId }: { buildId: string }) {
 
       <div className="flex-1 overflow-hidden flex flex-col p-5 gap-4">
         {/* Meta row */}
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-5 gap-3">
           <MetaCard icon={GitCommit} label="Commit">
             <span className="font-mono text-xs">{shortSha(build.commit_sha)}</span>
             <span className="ml-2 truncate text-[11px] text-[hsl(var(--muted-foreground))]">
@@ -160,6 +161,13 @@ function BuildContent({ buildId }: { buildId: string }) {
             {formatDuration(build.duration_seconds)}
             {isStreaming && (
               <span className="ml-2 text-[10px] text-blue-400 animate-pulse">running…</span>
+            )}
+          </MetaCard>
+          <MetaCard icon={Zap} label="Odoo Version">
+            {build.branch?.odoo_version ? (
+              <OdooVersionBadge version={build.branch.odoo_version} />
+            ) : (
+              <span className="text-[hsl(var(--muted-foreground))]">—</span>
             )}
           </MetaCard>
           <MetaCard icon={CheckCircle2} label="Tests">
