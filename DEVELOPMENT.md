@@ -5,10 +5,36 @@ Welcome to the Opsway developer guide. Opsway runs as a modern, containerized st
 ## 🏗️ Architecture Overview
 
 Opsway is a monorepo defined loosely via Docker Compose:
-- **`web/`**: Next.js 14 frontend (Next.js, Tailwind, shadcn/ui, React Query, next-themes).
-- **`api/`**: FastAPI backend (SQLAlchemy, PostgreSQL, JWT Auth).
-- **`api/app/worker/`**: Celery worker suite doing the heavy lifting (Docker orchestration, Git syncing).
+- **`web/`**: Next.js 16 frontend (React Query, shadcn/ui, DnD Kit, next-themes).
+- **`api/`**: FastAPI backend (SQLAlchemy, PostgreSQL, JWT Auth, SSE).
+- **`api/app/worker/`**: Celery worker suite (Docker orchestration, Git syncing, DB lifecycle).
 - **`infra/`**: Configuration for Traefik routing and external tools.
+
+---
+
+## 🔀 Project Modes
+
+Opsway hỗ trợ hai chế độ quản lý project:
+
+### Odoo Project (DB-driven)
+Chọn khi tạo project. Pipeline được **tự động generate từ cấu hình DB** — không cần `.opsway.yml`.
+
+| Trường | Mô tả | Default |
+|---|---|---|
+| `odoo_version` | Version Odoo (16 / 17 / 18) | `17` |
+| `postgres_version` | Image PostgreSQL | `postgres:16-alpine` |
+| `custom_addons_path` | Relative path trong repo chứa addons | `custom_addons` |
+| `odoo_workers` | Số Odoo workers (0 = threading) | `2` |
+| `odoo_image_override` | Docker image tùy chỉnh (để trống = official) | `null` |
+
+**Per-branch overrides**: Mỗi branch có thể override `postgres_version`, `odoo_image`, `custom_addons_path` trong Branch Settings.
+
+**Settings tab**: Hiển thị **Odoo Settings** panel (ẩn CI Config Files và Environment Variables).
+
+### Generic Project (CI-driven)
+Pipeline được định nghĩa hoàn toàn qua **`.opsway.yml`** ở root repository.
+
+**Settings tab**: Hiển thị **CI Config Files** editor và **Environment Variables** panel.
 
 ---
 
@@ -290,29 +316,39 @@ The backend ensures that the Odoo container is properly initialized before the H
 
 ## 💾 Database Migrations (Dev Mode)
 
-Currently, Opsway uses SQLAlchemy's `create_tables()` on startup. This automatically creates **new** tables but **does not** alter existing tables if you add new fields/columns to your models (`models/__init__.py`). 
+Opsway dùng SQLAlchemy `create_tables()` khi startup. Tự động tạo bảng mới nhưng **không tự ALTER** nếu bạn thêm column vào model có sẵn. Lỗi sẽ là `UndefinedColumnError` trong logs.
 
-If you add a new field to an existing model and restart the `api`, you might encounter `500 Internal Server Error` and logs complaining about `UndefinedColumnError`.
+### Workflow chuẩn khi thêm field mới
 
-To fix this without wiping your development database, use `psql` inside the `opsway_postgres` container to append the columns and provide default values.
+1. **Thêm column vào model** (`api/app/models/__init__.py`) và schema (`api/app/schemas/__init__.py`)
 
-### Example: Adding a new field to Projects
-If you add `backup_schedule: Mapped[str] = mapped_column(String(50), default="daily")` to `Project`:
-
-1. **Add the column via SQL:**
+2. **Viết migration SQL** vào `api/migrations/`:
    ```bash
-   docker exec opsway_postgres psql -U opsway -d opsway -c "ALTER TABLE projects ADD COLUMN IF NOT EXISTS backup_schedule VARCHAR;"
-   ```
-2. **Backfill existing rows with a default (Crucial for Pydantic Validation!):**
-   ```bash
-   docker exec opsway_postgres psql -U opsway -d opsway -c "UPDATE projects SET backup_schedule = 'daily' WHERE backup_schedule IS NULL;"
-   ```
-3. **Restart the API:**
-   ```bash
-   docker compose restart api
+   # Ví dụ: api/migrations/add_my_feature.sql
+   ALTER TABLE projects ADD COLUMN IF NOT EXISTS my_field VARCHAR(100);
+   UPDATE projects SET my_field = 'default_value' WHERE my_field IS NULL;
    ```
 
-*(Note: In the future, this will be handled automatically via Alembic migrations.)*
+3. **Chạy migration**:
+   ```bash
+   docker compose exec postgres psql -U opsway -d opsway -f /dev/stdin < api/migrations/add_my_feature.sql
+   # Hoặc inline:
+   docker compose exec postgres psql -U opsway -d opsway -c "ALTER TABLE ..."
+   ```
+
+4. **Rebuild và restart**:
+   ```bash
+   docker compose build api worker worker_default beat
+   docker compose restart api worker worker_default beat
+   ```
+
+### Migrations đã áp dụng
+
+| File | Mô tả |
+|---|---|
+| `add_project_type.sql` | Thêm `project_type`, `postgres_version`, `odoo_workers`, `odoo_image_override` vào `projects`; `postgres_version`, `odoo_image`, `custom_addons_path` vào `branches` |
+
+*(Lưu ý: Trong tương lai sẽ migrate sang Alembic.)*
 
 ---
 
