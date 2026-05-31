@@ -18,7 +18,6 @@ celery_app = Celery(
         "app.worker.tasks.repo",
         "app.worker.tasks.db_clone",
         "app.worker.tasks.neutralize",
-        "app.worker.tasks.uptime",
     ],
 )
 
@@ -33,7 +32,6 @@ celery_app.conf.update(
         "app.worker.tasks.backup.*": {"queue": "default"},
         "app.worker.tasks.restore.*": {"queue": "default"},
         "app.worker.tasks.cleanup.*": {"queue": "default"},
-        "app.worker.tasks.uptime.*": {"queue": "default"},
     },
     task_acks_late=True,
     worker_prefetch_multiplier=1,
@@ -47,10 +45,6 @@ celery_app.conf.update(
         "daily-backup": {
             "task": "app.worker.tasks.backup.run_daily_backups",
             "schedule": 86400.0,  # Every 24h
-        },
-        "check-uptime": {
-            "task": "app.worker.tasks.uptime.check_all_uptime",
-            "schedule": 60.0,  # Every 60s
         },
     },
 )

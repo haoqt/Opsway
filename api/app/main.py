@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
 from app.core.database import create_tables
-from app.routers import auth, projects, branches, builds, webhooks, monitoring, stats, terminal, backups, domains, members, uptime, ci_config
+from app.routers import auth, projects, branches, builds, webhooks, monitoring, terminal, backups, members, pipeline
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Opsway API",
     description="CI/CD Platform for Odoo — self-hosted, git-native",
-    version="0.1.0",
+    version="0.2.0",
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
@@ -59,26 +59,23 @@ app.include_router(projects.router, prefix=API_PREFIX)
 app.include_router(branches.router, prefix=API_PREFIX)
 app.include_router(builds.router, prefix=API_PREFIX)
 app.include_router(monitoring.router, prefix=API_PREFIX)
-app.include_router(stats.router, prefix=API_PREFIX)
 app.include_router(terminal.router, prefix=API_PREFIX)
 app.include_router(backups.router, prefix=API_PREFIX)
-app.include_router(domains.router, prefix=API_PREFIX)
 app.include_router(members.router, prefix=API_PREFIX)
-app.include_router(uptime.router, prefix=API_PREFIX)
-app.include_router(ci_config.router, prefix=API_PREFIX)
+app.include_router(pipeline.router, prefix=API_PREFIX)
 app.include_router(webhooks.router)  # No /api prefix — raw webhook URL
 
 
 # ── Health check ────────────────────────────────────────────────
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "opsway-api", "version": "0.1.0"}
+    return {"status": "ok", "service": "opsway-api", "version": "0.2.0"}
 
 
 @app.get("/")
 async def root():
     return {
         "name": "Opsway API",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "docs": "/docs",
     }

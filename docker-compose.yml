@@ -125,23 +125,6 @@ services:
       timeout: 20s
       retries: 3
 
-  # -------------------------------------------------------------
-  # MailHog — Email catcher for dev/staging Odoo instances
-  # -------------------------------------------------------------
-  mailhog:
-    image: mailhog/mailhog:latest
-    container_name: opsway_mailhog
-    restart: unless-stopped
-    ports:
-      - "8025:8025"
-    networks:
-      - opsway_internal
-      - traefik_public
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.mailhog.rule=Host(`mail.localhost`)
-      - traefik.http.routers.mailhog.service=mailhog
-      - traefik.http.services.mailhog.loadbalancer.server.port=8025
 
   # -------------------------------------------------------------
   # Opsway API — FastAPI Backend
@@ -169,8 +152,6 @@ services:
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-opsway_minio_secret}
       - MINIO_BUCKET_BACKUPS=${MINIO_BUCKET_BACKUPS:-opsway-backups}
       - MINIO_SECURE=${MINIO_SECURE:-false}
-      - MAILHOG_HOST=${MAILHOG_HOST:-mailhog}
-      - MAILHOG_SMTP_PORT=${MAILHOG_SMTP_PORT:-1025}
       - APP_ENV=${APP_ENV:-development}
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
       - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
@@ -223,8 +204,6 @@ services:
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-opsway_minio}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-opsway_minio_secret}
       - MINIO_SECURE=${MINIO_SECURE:-false}
-      - MAILHOG_HOST=${MAILHOG_HOST:-mailhog}
-      - MAILHOG_SMTP_PORT=${MAILHOG_SMTP_PORT:-1025}
       - APP_ENV=${APP_ENV:-development}
       - BUILD_WORKSPACE=${BUILD_WORKSPACE:-/builds}
       - HOST_BUILD_WORKSPACE=${HOST_BUILD_WORKSPACE}

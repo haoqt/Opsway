@@ -2,8 +2,6 @@ export type GitProvider = "github" | "gitlab";
 export type EnvironmentType = "development" | "staging" | "production";
 export type BuildStatus = "pending" | "building" | "success" | "failed" | "cancelled";
 export type UserRole = "owner" | "developer" | "viewer";
-export type UptimeStatus = "up" | "down" | "unknown";
-export type ProjectType = "odoo" | "generic";
 
 export interface ProjectMember {
   id: string;
@@ -37,7 +35,6 @@ export interface Project {
   name: string;
   slug: string;
   description: string | null;
-  project_type: ProjectType;
   git_provider: GitProvider;
   repo_owner: string;
   repo_name: string;
@@ -56,17 +53,9 @@ export interface Project {
   build_limit_dev: number;
   build_limit_staging: number;
   build_limit_production: number;
-  custom_domain: string | null;
-  custom_domain_verified: boolean;
   backup_schedule: string;
-  backup_retention_daily: number;
-  backup_retention_weekly: number;
-  backup_retention_monthly: number;
-  notification_email: string | null;
+  backup_max_count: number;
   notification_webhook_url: string | null;
-  notification_slack_url: string | null;
-  notification_telegram_bot_token: string | null;
-  notification_telegram_chat_id: string | null;
   gitlab_url: string | null;
 }
 
@@ -96,9 +85,6 @@ export interface Branch {
   cloned_from_branch_id: string | null;
   current_task: string | null;
   current_task_status: string | null;
-  uptime_status: UptimeStatus;
-  uptime_last_checked_at: string | null;
-  uptime_response_ms: number | null;
   postgres_version: string | null;
   odoo_image: string | null;
   custom_addons_path: string | null;
@@ -140,36 +126,27 @@ export interface GlobalStats {
   projects: number;
 }
 
-export interface DomainVerification {
-  domain: string;
-  verified: boolean;
-  cname_target: string;
-  message: string | null;
+export interface PipelineJob {
+  name: string;
+  image?: string | null;
+  exec_in?: string | null;
+  script: string[];
+  allow_failure: boolean;
+  when: string;
 }
 
-export interface UptimeCheck {
-  id: string;
-  branch_id: string;
-  status: UptimeStatus;
-  response_ms: number | null;
-  error: string | null;
-  checked_at: string;
+export interface PipelineStage {
+  name: string;
+  jobs: PipelineJob[];
 }
 
-export const CI_FILENAMES = [
-  ".opsway.yml",
-  "odoo.conf.template",
-  ".flake8",
-  ".pre-commit-config.yml",
-  ".pylintrc",
-  ".pylintrc-mandatory",
-] as const;
+export interface PipelineConfig {
+  stages: PipelineStage[];
+}
 
-export type CIFilename = typeof CI_FILENAMES[number];
-
-export interface CIFiles {
+export interface PipelineConfigOut {
   id: string;
   project_id: string;
-  files: Record<string, string>;
+  config: PipelineConfig;
   updated_at: string;
 }

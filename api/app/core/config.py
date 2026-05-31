@@ -34,10 +34,6 @@ class Settings(BaseSettings):
     minio_bucket_backups: str = "opsway-backups"
     minio_secure: bool = False
 
-    # MailHog
-    mailhog_host: str = "mailhog"
-    mailhog_smtp_port: int = 1025
-
     # Docker
     docker_socket: str = "unix:///var/run/docker.sock"
     opsway_network_prefix: str = "opsway"
@@ -62,13 +58,6 @@ class Settings(BaseSettings):
     webhook_base_url: str = "http://localhost:8000"
 
     traefik_domain: str = "localhost"
-
-    # SMTP Notifications (optional)
-    smtp_host: str = ""
-    smtp_port: int = 587
-    smtp_user: str = ""
-    smtp_password: str = ""
-    smtp_from: str = "opsway@noreply.local"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

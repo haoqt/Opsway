@@ -1,5 +1,5 @@
 import axios from "axios";
-import { GlobalStats, DomainVerification } from "@/lib/types";
+import { GlobalStats } from "@/lib/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -47,7 +47,6 @@ export const projectsApi = {
   create: (data: {
     name: string;
     repo_full_name: string;
-    project_type?: string;
     git_provider?: string;
     odoo_version?: string;
     postgres_version?: string;
@@ -74,11 +73,6 @@ export const membersApi = {
     api.post(`/projects/${projectId}/members/transfer-ownership`, { new_owner_user_id: newOwnerUserId }),
 };
 
-export const uptimeApi = {
-  getProjectUptime: (projectId: string) => api.get(`/uptime/projects/${projectId}`),
-  getBranchHistory: (branchId: string) => api.get(`/uptime/branches/${branchId}/history`),
-};
-
 export const ciConfigApi = {
   getAll: (projectId: string) => api.get(`/projects/${projectId}/ci-config`),
   saveFile: (projectId: string, filename: string, content: string) =>
@@ -103,8 +97,6 @@ export const branchesApi = {
     api.delete(`/projects/${projectId}/branches/${branchId}`),
   deploy: (projectId: string, branchId: string) =>
     api.post(`/projects/${projectId}/branches/${branchId}/deploy`),
-  promote: (projectId: string, branchId: string, targetEnv: string) =>
-    api.post(`/projects/${projectId}/branches/${branchId}/switch-environment?target_env=${targetEnv}`),
   listBuilds: (projectId: string, branchId: string) =>
     api.get(`/projects/${projectId}/branches/${branchId}/builds`),
   listBackups: (projectId: string, branchId: string) =>
@@ -146,16 +138,12 @@ export const monitoringApi = {
 };
 
 export const statsApi = {
-  get: () => api.get("/stats").then((r) => r.data as GlobalStats),
+  get: () => api.get("/monitoring/stats").then((r) => r.data as GlobalStats),
+};
+export const getPipelineConfig = async (projectId: string) => {
+  return await api.get(`/projects/${projectId}/pipeline`);
 };
 
-export const domainsApi = {
-  set: (projectId: string, domain: string) =>
-    api.post(`/projects/${projectId}/domain`, { domain }),
-  verify: (projectId: string) =>
-    api.post<DomainVerification>(`/projects/${projectId}/domain/verify`),
-  remove: (projectId: string) =>
-    api.delete(`/projects/${projectId}/domain`),
-  get: (projectId: string) =>
-    api.get<DomainVerification>(`/projects/${projectId}/domain`),
+export const updatePipelineConfig = async (projectId: string, data: any) => {
+  return await api.put(`/projects/${projectId}/pipeline`, data);
 };

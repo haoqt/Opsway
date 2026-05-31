@@ -76,7 +76,6 @@ export default function MonitoringPage() {
               <ServiceStatus name="Broker (Redis)" status={stats?.services_health?.redis ?? "offline"} />
               <ServiceStatus name="Storage (MinIO)" status={stats?.services_health?.minio ?? "offline"} />
               <ServiceStatus name="Inbound (Traefik)" status={stats?.services_health?.traefik ?? "offline"} />
-              <ServiceStatus name="Mail Trap (MailHog)" status={stats?.services_health?.mailhog ?? "offline"} />
             </div>
           </Card>
         </div>

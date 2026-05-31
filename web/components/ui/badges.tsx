@@ -28,23 +28,7 @@ export function BuildStatusBadge({ status, size = "sm" }: { status: BuildStatus;
   );
 }
 
-// ── Environment Badge ──────────────────────────────────────────
 
-const ENV_CONFIG: Record<EnvironmentType, { label: string; class: string }> = {
-  development: { label: "Dev",     class: "text-violet-400 bg-violet-400/10 border-violet-400/20" },
-  staging:     { label: "Staging", class: "text-amber-400 bg-amber-400/10 border-amber-400/20" },
-  production:  { label: "Prod",    class: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20" },
-};
-
-export function EnvironmentBadge({ env }: { env: EnvironmentType }) {
-  const cfg = ENV_CONFIG[env] || ENV_CONFIG.development;
-  return (
-    <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium", cfg.class)}>
-      <Layers size={10} />
-      {cfg.label}
-    </span>
-  );
-}
 
 // ── Odoo Version Badge ─────────────────────────────────────────
 

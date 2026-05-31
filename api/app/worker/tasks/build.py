@@ -65,18 +65,39 @@ def _update_build_status(session: Session, build: Build, status: BuildStatus, **
 # ── .opsway.yml helpers ────────────────────────────────────────
 
 def _load_opsway_config(session, project_id, log) -> dict:
-    """Load and parse .opsway.yml from the project's CI config DB record."""
+    """Load PipelineConfig from DB and convert to flat config dict."""
     try:
-        import yaml
+        from app.models import ProjectCIConfig
         ci = session.query(ProjectCIConfig).filter_by(project_id=project_id).first()
-        stored = dict(ci.config or {}) if ci else {}
-        raw = stored.get(".opsway.yml", "")
-        if not raw:
+        if not ci or not ci.config:
             return {}
-        data = yaml.safe_load(raw) or {}
-        return data if isinstance(data, dict) else {}
+            
+        config = ci.config
+        
+        # Legacy check
+        if isinstance(config, dict) and (".opsway.yml" in config or "stages" not in config):
+            return {}
+            
+        flat_cfg = {"stages": []}
+        for stage in config.get("stages", []):
+            stage_name = stage.get("name")
+            if stage_name not in flat_cfg["stages"]:
+                flat_cfg["stages"].append(stage_name)
+            
+            for job in stage.get("jobs", []):
+                job_id = f"{stage_name}_{job.get('name')}"
+                flat_cfg[job_id] = {
+                    "stage": stage_name,
+                    "image": job.get("image"),
+                    "exec_in": job.get("exec_in"),
+                    "script": job.get("script", []),
+                    "allow_failure": job.get("allow_failure", False),
+                    "when": job.get("when", "auto")
+                }
+                
+        return flat_cfg
     except Exception as e:
-        log(f"⚠️  Could not parse .opsway.yml: {e}")
+        log(f"⚠️  Could not load pipeline config: {e}")
         return {}
 
 
@@ -159,7 +180,7 @@ def _execute_docker_job(job: dict, local_path: str, log):
     import docker as docker_sdk
 
     image = job["image"]
-    script_lines = job.get("script") or []
+    script_lines = [l.strip().lstrip("- ").strip() for l in (job.get("script") or []) if l.strip()]
     allow_failure = bool(job.get("allow_failure", False))
     # Redirect stdout→stderr so ContainerError.stderr captures all output
     # (pre-commit writes failures to stdout; docker-py ContainerError only has .stderr)
@@ -228,7 +249,7 @@ def _execute_exec_job(job: dict, container_name: str, docker: DockerManager,
     """Run job script via docker exec inside a running container (exec_in: odoo).
     Returns (passed, combined_output).
     """
-    script_lines = job.get("script") or []
+    script_lines = [l.strip().lstrip("- ").strip() for l in (job.get("script") or []) if l.strip()]
     allow_failure = bool(job.get("allow_failure", False))
     combined_out = ""
     passed = True
@@ -438,9 +459,7 @@ def _execute_opsway_deploy(
         environment=branch.environment.value,
         extra_env=merged_env,
         repo_path=str(local_path),
-        mailhog_host=settings.mailhog_host,
-        mailhog_smtp_port=settings.mailhog_smtp_port,
-        custom_domain=project.custom_domain if project.custom_domain_verified else None,
+        workers=project.odoo_workers or 2,
         odoo_image=job_image,
         extra_volumes=job_volumes or None,
         command_override=job_command or None,
@@ -668,11 +687,7 @@ def trigger_build(self, build_id: str, branch_id: str):
                 project_slug=project.slug,
                 branch_name=branch.name,
                 build_info={"commit_sha": build.commit_sha, "commit_message": build.commit_message},
-                notification_email=project.notification_email,
                 notification_webhook_url=project.notification_webhook_url,
-                notification_slack_url=project.notification_slack_url,
-                notification_telegram_bot_token=project.notification_telegram_bot_token,
-                notification_telegram_chat_id=project.notification_telegram_chat_id,
             )
 
             try:
@@ -716,100 +731,64 @@ def trigger_build(self, build_id: str, branch_id: str):
                 commit_info = get_latest_commit(repo)
                 log(f"✅ Checked out {commit_info['short_sha']}")
 
-                # ── Build pipeline config based on project type ─────────
+                # ── Build pipeline config ─────────
                 env_value = branch.environment.value
-                is_odoo_project = project.project_type.value == "odoo"
-
-                if is_odoo_project:
-                    # ── Odoo project: DB-driven pipeline (no CI Config Files) ──
-                    log("🧱 Odoo project — using DB-driven pipeline config")
-
-                    # Resolve per-branch overrides → project defaults
-                    _pg_version = branch.postgres_version or project.postgres_version or "postgres:16-alpine"
-                    _odoo_ver = branch.odoo_version or project.odoo_version or "17"
-                    _odoo_img = branch.odoo_image or project.odoo_image_override or None
-                    _addons_path = branch.custom_addons_path or project.custom_addons_path or "custom_addons"
-                    _workers = project.odoo_workers or 2
-
-                    log(f"   Odoo: {_odoo_ver} | PG: {_pg_version} | Workers: {_workers}")
-
-                    opsway_cfg = {
-                        "stages": ["deploy"],
-                        f"deploy_{env_value}": {
-                            "stage": "deploy",
-                            "trigger": "opsway",
-                            "environment": env_value,
-                            "when": "auto",
-                            "services": {
-                                "database": {
-                                    "image": _pg_version,
-                                    "environment": {
-                                        "POSTGRES_USER": "odoo",
-                                        "POSTGRES_PASSWORD": "odoo",
-                                    },
+                
+                # Default Odoo Deploy config
+                opsway_cfg = {
+                    "stages": ["deploy"],
+                    f"deploy_{env_value}": {
+                        "stage": "deploy",
+                        "trigger": "opsway",
+                        "environment": env_value,
+                        "when": "auto",
+                        "services": {
+                            "database": {
+                                "image": branch.postgres_version or project.postgres_version or "postgres:16-alpine",
+                                "environment": {
+                                    "POSTGRES_USER": "odoo",
+                                    "POSTGRES_PASSWORD": "odoo",
                                 },
-                                "web": {
-                                    "image": _odoo_img or (f"odoo:{_odoo_ver}.0" if "." not in str(_odoo_ver) else f"odoo:{_odoo_ver}"),
-                                    "volumes": [
-                                        f"./{_addons_path}:/mnt/extra-addons",
-                                    ],
-                                    "environment": {
-                                        "HOST": "database",
-                                        "USER": "odoo",
-                                        "PASSWORD": "odoo",
-                                    },
+                            },
+                            "web": {
+                                "image": branch.odoo_image or project.odoo_image_override or None,
+                                "volumes": [
+                                    f"./{branch.custom_addons_path or project.custom_addons_path or 'custom_addons'}:/mnt/extra-addons",
+                                ],
+                                "environment": {
+                                    "HOST": "database",
+                                    "USER": "odoo",
+                                    "PASSWORD": "odoo",
                                 },
                             },
                         },
-                    }
+                    },
+                }
 
-                    # Add tests stage if enabled on branch
-                    if branch.run_tests and branch.environment == EnvironmentType.DEVELOPMENT:
-                        opsway_cfg["stages"].append("tests")
-                        opsway_cfg["tests"] = {
-                            "stage": "tests",
-                            "exec_in": "odoo",
-                            "script": ["odoo --test-enable --test-tags at_install --stop-after-init -d ${DB_NAME} --db_host ${DB_HOST}"],
-                            "allow_failure": True,
-                            "only": ["development"],
-                        }
-                else:
-                    # ── Generic project: .opsway.yml-driven pipeline ───────
-                    log("🔧 Generic project — using CI Config Files pipeline")
-
-                    # Sync CI files from repo → DB
-                    try:
-                        _sync_ci_files_from_repo(session, project.id, local_path, log)
-                    except Exception as e:
-                        log(f"⚠️  CI file sync skipped: {e}")
-
-                    # Read .opsway.yml → pipeline plan
-                    opsway_cfg = _load_opsway_config(session, project.id, log)
-
-                    # When no .opsway.yml is present (or it has no jobs), inject a
-                    # minimal default so deploy always runs via Docker SDK and tests
-                    # respect the branch.run_tests DB flag.
-                    if not _find_stage_jobs(opsway_cfg, "deploy", env_value):
-                        log("ℹ️  No deploy jobs in .opsway.yml — using Opsway default pipeline")
-                        opsway_cfg.setdefault("stages", ["deploy"])
-                        if "deploy" not in opsway_cfg["stages"]:
-                            opsway_cfg["stages"].insert(0, "deploy")
-                        opsway_cfg[f"deploy_{env_value}"] = {
-                            "stage": "deploy",
-                            "trigger": "opsway",
-                            "environment": env_value,
-                            "when": "auto",
-                        }
-                        if branch.run_tests and branch.environment == EnvironmentType.DEVELOPMENT:
-                            if "tests" not in opsway_cfg["stages"]:
-                                opsway_cfg["stages"].append("tests")
-                            opsway_cfg.setdefault("tests", {
-                                "stage": "tests",
-                                "exec_in": "odoo",
-                                "script": ["odoo --test-enable --test-tags at_install --stop-after-init -d ${DB_NAME} --db_host ${DB_HOST}"],
-                                "allow_failure": True,
-                                "only": ["development"],
-                            })
+                # Merge UI Pipeline Config overrides
+                try:
+                    extra_cfg = _load_opsway_config(session, project.id, log)
+                    if extra_cfg and extra_cfg.get("stages"):
+                        log("📎 Merging Pipeline Config")
+                        
+                        # Merge stages (prepend custom stages before deploy, or keep user order)
+                        for st in extra_cfg["stages"]:
+                            if st not in opsway_cfg["stages"]:
+                                opsway_cfg["stages"].insert(0, st)  # default to running before deploy if not specified
+                                
+                        # User can explicitly reorder 'deploy' by including it in the UI stages. 
+                        # We honor the UI stages order, and append deploy if not present.
+                        ui_stages = extra_cfg["stages"]
+                        if "deploy" not in ui_stages:
+                            ui_stages.append("deploy")
+                        opsway_cfg["stages"] = ui_stages
+                                
+                        # Merge jobs
+                        for k, v in extra_cfg.items():
+                            if k != "stages":
+                                opsway_cfg[k] = v
+                except Exception as e:
+                    log(f"⚠️  Failed to merge pipeline config: {e}")
 
                 pipeline_stages = opsway_cfg.get("stages") or ["deploy"]
                 log(f"📋 Pipeline: {' → '.join(pipeline_stages)}")
@@ -855,8 +834,6 @@ def trigger_build(self, build_id: str, branch_id: str):
                             # Persist container info to DB immediately
                             branch.container_name = deploy_ctx["odoo_container"].name
                             branch.db_name = deploy_ctx["db_name"]
-                            if deploy_ctx.get("odoo_version"):
-                                branch.odoo_version = deploy_ctx["odoo_version"]
                             session.commit()
                             log(f"✅ [{job['_name']}] deployed")
 
@@ -930,11 +907,7 @@ def trigger_build(self, build_id: str, branch_id: str):
                         "duration_seconds": build.duration_seconds,
                         "url": branch.container_url,
                     },
-                    notification_email=project.notification_email,
                     notification_webhook_url=project.notification_webhook_url,
-                    notification_slack_url=project.notification_slack_url,
-                    notification_telegram_bot_token=project.notification_telegram_bot_token,
-                    notification_telegram_chat_id=project.notification_telegram_chat_id,
                 )
 
             except Exception as exc:
@@ -961,11 +934,7 @@ def trigger_build(self, build_id: str, branch_id: str):
                         "duration_seconds": build.duration_seconds,
                         "error_message": str(exc),
                     },
-                    notification_email=project.notification_email,
                     notification_webhook_url=project.notification_webhook_url,
-                    notification_slack_url=project.notification_slack_url,
-                    notification_telegram_bot_token=project.notification_telegram_bot_token,
-                    notification_telegram_chat_id=project.notification_telegram_chat_id,
                 )
                 raise
 

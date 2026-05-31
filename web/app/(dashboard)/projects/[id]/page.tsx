@@ -11,23 +11,22 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
-  useDroppable,
   useDraggable,
 } from "@dnd-kit/core";
-import { projectsApi, branchesApi, domainsApi, monitoringApi, membersApi, authApi, uptimeApi, ciConfigApi } from "@/lib/api";
-import { CIConfigSettings } from "@/components/projects/ci-config-settings";
-import { OdooProjectSettings } from "@/components/projects/odoo-project-settings";
-import { ProjectDetail, Branch, DomainVerification, ProjectMember } from "@/lib/types";
+import { projectsApi, branchesApi, monitoringApi, membersApi, authApi, ciConfigApi } from "@/lib/api";
+import { DeleteProjectSettings } from "@/components/projects/delete-project-settings";
+import { PipelineSettings } from "@/components/projects/pipeline-settings";
+import { ProjectDetail, Branch, ProjectMember } from "@/lib/types";
 import { Topbar } from "@/components/layout/sidebar";
 import { Card, Button, Skeleton, EmptyState } from "@/components/ui/primitives";
-import { BuildStatusBadge, EnvironmentBadge, OdooVersionBadge } from "@/components/ui/badges";
+import { BuildStatusBadge, OdooVersionBadge } from "@/components/ui/badges";
 import { formatTimeAgo, formatDuration, shortSha } from "@/lib/utils";
 import {
   GitBranch, ExternalLink, Rocket, RefreshCw,
   GitCommit, Terminal, Layers, Play, Copy,
   CheckCircle2, AlertCircle, ChevronRight, Database, Database as DatabaseIcon,
   Globe, Shield, ShieldCheck, Mail, Download, Trash2, Link2, Loader2, Users, UserPlus, Crown, Activity,
-  KeyRound, Plus, X, Server, Wrench
+  KeyRound, Plus, X, Server, Wrench, Bell
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -37,37 +36,6 @@ export default function ProjectDetailPage() {
   const qc = useQueryClient();
 
   const [activeTab, setActiveTab] = React.useState<"pipeline" | "history" | "team" | "settings">("pipeline");
-  const [draggingBranch, setDraggingBranch] = React.useState<Branch | null>(null);
-  const [overEnv, setOverEnv] = React.useState<string | null>(null);
-
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
-
-  const { mutate: promoteBranch } = useMutation({
-    mutationFn: ({ branchId, targetEnv }: { branchId: string; targetEnv: string }) =>
-      branchesApi.promote(id, branchId, targetEnv),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["project", id] }),
-    onError: (err: any) => alert(err.response?.data?.detail || "Promotion failed"),
-  });
-
-  function handleDragStart(event: DragStartEvent) {
-    const branch = project?.branches?.find((b) => b.id === event.active.id);
-    setDraggingBranch(branch ?? null);
-  }
-
-  function handleDragOver(event: DragOverEvent) {
-    setOverEnv(event.over ? (event.over.id as string) : null);
-  }
-
-  function handleDragEnd(event: DragEndEvent) {
-    setDraggingBranch(null);
-    setOverEnv(null);
-    const { active, over } = event;
-    if (!over) return;
-    const targetEnv = over.id as string;
-    const branch = project?.branches?.find((b) => b.id === active.id);
-    if (!branch || branch.environment === targetEnv) return;
-    promoteBranch({ branchId: branch.id, targetEnv });
-  }
 
   const { data: project, isLoading, refetch } = useQuery({
     queryKey: ["project", id],
@@ -120,9 +88,7 @@ export default function ProjectDetailPage() {
   if (isLoading) return <LoadingSkeleton />;
   if (!project) return <div className="p-6 text-sm text-red-400">Project not found</div>;
 
-  const devBranches = project.branches?.filter((b) => b.environment === "development") ?? [];
-  const stagingBranches = project.branches?.filter((b) => b.environment === "staging") ?? [];
-  const prodBranches = project.branches?.filter((b) => b.environment === "production") ?? [];
+  const branches = project.branches ?? [];
 
   return (
     <>
@@ -177,76 +143,36 @@ export default function ProjectDetailPage() {
             <>
               {/* Project info */}
               <div className="flex items-center gap-3 flex-wrap mb-4">
-                {project.project_type === "odoo" ? (
-                  <>
+                <>
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-violet-500/10 text-violet-400 border border-violet-500/20">
                       <Server size={10} /> Odoo Project
                     </span>
                     <OdooVersionBadge version={project.odoo_version} />
                   </>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-sky-500/10 text-sky-400 border border-sky-500/20">
-                    <Wrench size={10} /> Generic Project
-                  </span>
-                )}
                 <span className="text-xs text-[hsl(var(--muted-foreground))]">
                   {project.branch_count} branches · Created {formatTimeAgo(project.created_at)}
                 </span>
               </div>
 
-              {/* Branches pipeline — 3 columns with drag-and-drop */}
-              <DndContext
-                sensors={sensors}
-                onDragStart={handleDragStart}
-                onDragOver={handleDragOver}
-                onDragEnd={handleDragEnd}
-              >
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start h-full">
-                  <BranchColumn
-                    title="Development"
-                    description="Active features & sandboxes"
-                    environment="development"
-                    branches={devBranches}
-                    allBranches={project.branches ?? []}
-                    projectId={id}
-                    projectSlug={project.slug}
-                    isDropTarget={overEnv === "development"}
-                    onRefresh={() => qc.invalidateQueries({ queryKey: ["project", id] })}
-                  />
-                  <BranchColumn
-                    title="Staging"
-                    description="Testing with production data"
-                    environment="staging"
-                    branches={stagingBranches}
-                    allBranches={project.branches ?? []}
-                    projectId={id}
-                    projectSlug={project.slug}
-                    isDropTarget={overEnv === "staging"}
-                    onRefresh={() => qc.invalidateQueries({ queryKey: ["project", id] })}
-                  />
-                  <BranchColumn
-                    title="Production"
-                    description="Live customer environments"
-                    environment="production"
-                    branches={prodBranches}
-                    allBranches={project.branches ?? []}
-                    projectId={id}
-                    projectSlug={project.slug}
-                    isDropTarget={overEnv === "production"}
-                    onRefresh={() => qc.invalidateQueries({ queryKey: ["project", id] })}
-                  />
-                </div>
-                <DragOverlay>
-                  {draggingBranch && (
-                    <div className="rounded-xl border border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--card))] p-3 shadow-2xl opacity-90 w-64">
-                      <div className="flex items-center gap-2">
-                        <GitBranch size={14} className="text-[hsl(var(--primary))]" />
-                        <span className="text-sm font-bold truncate">{draggingBranch.name}</span>
-                      </div>
-                    </div>
-                  )}
-                </DragOverlay>
-              </DndContext>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 items-start">
+                {branches.length === 0 ? (
+                  <div className="col-span-full py-20 flex flex-col items-center justify-center border border-dashed border-zinc-700/50 rounded-2xl bg-black/5">
+                    <GitBranch size={40} className="text-zinc-600 mb-4" />
+                    <p className="text-zinc-400 text-sm">No branches found. Push code to your repository to see them here.</p>
+                  </div>
+                ) : (
+                  branches.map((branch) => (
+                    <BranchCard
+                      key={branch.id}
+                      branch={branch}
+                      projectSlug={project.slug}
+                      projectId={id}
+                      allBranches={project.branches ?? []}
+                      onRefresh={() => qc.invalidateQueries({ queryKey: ["project", id] })}
+                    />
+                  ))
+                )}
+              </div>
             </>
           )}
 
@@ -266,8 +192,7 @@ export default function ProjectDetailPage() {
                         <div>
                           <p className="text-sm font-semibold">{branch.name}</p>
                           <div className="flex items-center gap-2 mt-1">
-                            <EnvironmentBadge env={branch.environment} />
-                            <span className="text-[10px] text-[hsl(var(--muted-foreground))]">
+                           <span className="text-[10px] text-[hsl(var(--muted-foreground))]">
                               Updated {formatTimeAgo(branch.updated_at)}
                             </span>
                           </div>
@@ -424,20 +349,8 @@ export default function ProjectDetailPage() {
               {/* Notifications */}
               <NotificationSettings project={project} projectId={id} />
 
-              {/* Custom Domains */}
-              <CustomDomainsSettings project={project} projectId={id} />
-
-              {/* Environment Variables — Generic projects only */}
-              {project.project_type !== "odoo" && (
-                <EnvironmentVariablesSettings projectId={id} branches={project.branches ?? []} />
-              )}
-
-              {/* Project Config: Odoo Settings or CI Config Files */}
-              {project.project_type === "odoo" ? (
-                <OdooProjectSettings project={project} />
-              ) : (
-                <CIConfigSettings projectId={id} odooVersion={project.odoo_version} />
-              )}
+              {/* Project Config: Pipeline Settings */}
+              <PipelineSettings project={project} />
 
               {/* Transfer Ownership */}
               <TransferOwnershipSettings projectId={id} members={members} currentUserId={me?.id} />
@@ -472,120 +385,25 @@ function TabButton({ active, onClick, icon, label }: { active: boolean; onClick:
 
 // ── Branch Column ──────────────────────────────────────────────
 
-function BranchColumn({
-  title, description, environment, branches, allBranches, projectId, projectSlug, isDropTarget, onRefresh,
-}: {
-  title: string;
-  description: string;
-  environment: "development" | "staging" | "production";
-  branches: Branch[];
-  allBranches: Branch[];
-  projectId: string;
-  projectSlug: string;
-  isDropTarget: boolean;
-  onRefresh: () => void;
-}) {
-  const { setNodeRef } = useDroppable({ id: environment });
-  const envThemes = {
-    development: {
-      border: "border-violet-500/30",
-      bg: "bg-violet-500/[0.02] dark:bg-violet-500/[0.03]",
-      headerBg: "bg-violet-500/10",
-      accent: "bg-violet-500",
-      text: "text-violet-600 dark:text-violet-400",
-      glow: "shadow-[0_0_15px_rgba(139,92,246,0.1)]"
-    },
-    staging: {
-      border: "border-amber-500/30",
-      bg: "bg-amber-500/[0.02] dark:bg-amber-500/[0.03]",
-      headerBg: "bg-amber-500/10",
-      accent: "bg-amber-500",
-      text: "text-amber-600 dark:text-amber-400",
-      glow: "shadow-[0_0_15px_rgba(245,158,11,0.1)]"
-    },
-    production: {
-      border: "border-emerald-500/30",
-      bg: "bg-emerald-500/[0.02] dark:bg-emerald-500/[0.03]",
-      headerBg: "bg-emerald-500/10",
-      accent: "bg-emerald-500",
-      text: "text-emerald-600 dark:text-emerald-400",
-      glow: "shadow-[0_0_15px_rgba(16,185,129,0.1)]"
-    },
-  };
+// ── Components ────────────────────────────────────────────────
 
-  const theme = envThemes[environment];
 
-  return (
-    <div
-      ref={setNodeRef}
-      className={cn(
-        "flex flex-col h-full rounded-2xl border transition-all duration-300",
-        theme.border,
-        theme.bg,
-        theme.glow,
-        isDropTarget && "ring-2 ring-[hsl(var(--primary)/0.6)] ring-offset-1 ring-offset-background scale-[1.01]"
-      )}
-    >
-      {/* Column Header */}
-      <div className={cn("p-4 border-b border-inherit rounded-t-2xl", theme.headerBg)}>
-        <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-2">
-            <div className={cn("h-2 w-2 rounded-full", theme.accent)} />
-            <h3 className={cn("text-xs font-black uppercase tracking-widest", theme.text)}>
-              {title}
-            </h3>
-          </div>
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-secondary text-[hsl(var(--foreground))] border border-[hsl(var(--border))]">
-            {branches.length}
-          </span>
-        </div>
-        <p className="text-[10px] text-[hsl(var(--muted-foreground))] font-medium leading-tight opacity-80">
-          {description}
-        </p>
-      </div>
-
-      {/* Column Body */}
-      <div className="flex-1 p-3 space-y-4 overflow-y-auto max-h-[calc(100vh-280px)] custom-scrollbar">
-        {branches.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 opacity-30">
-            <div className={cn("p-3 rounded-full bg-[hsl(var(--secondary)/0.5)] mb-3", theme.text)}>
-              <Layers size={24} className="stroke-1" />
-            </div>
-            <p className="text-[10px] font-bold uppercase tracking-tighter">No {title} Branches</p>
-          </div>
-        ) : (
-          branches.map((branch) => (
-            <BranchCard
-              key={branch.id}
-              branch={branch}
-              projectId={projectId}
-              projectSlug={projectSlug}
-              allBranches={allBranches}
-              onRefresh={onRefresh}
-              themeColor={theme.accent}
-            />
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ── Branch Card ────────────────────────────────────────────────
 
 function BranchCard({
-  branch, projectId, projectSlug, allBranches, onRefresh, themeColor,
+  branch, projectId, projectSlug, allBranches, onRefresh,
 }: {
   branch: Branch;
   projectId: string;
   projectSlug: string;
   allBranches: Branch[];
   onRefresh: () => void;
-  themeColor: string;
 }) {
-  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id: branch.id });
   const [showCloneMenu, setShowCloneMenu] = React.useState(false);
   const [cloneSourceId, setCloneSourceId] = React.useState("");
+
+
 
   // Resource metrics polling (only when running)
   const { data: metrics } = useQuery({
@@ -593,12 +411,6 @@ function BranchCard({
     queryFn: () => monitoringApi.getBranchMetrics(projectId, branch.id).then(r => r.data),
     refetchInterval: 15_000,
     enabled: branch.container_status === "running",
-  });
-
-  const { mutate: promote, isPending: isPromoting } = useMutation({
-    mutationFn: (targetEnv: string) => branchesApi.promote(projectId, branch.id, targetEnv),
-    onSuccess: onRefresh,
-    onError: (err: any) => alert(err.response?.data?.detail || "Promotion failed"),
   });
 
   const { mutate: deploy, isPending: isDeploying } = useMutation({
@@ -612,31 +424,13 @@ function BranchCard({
   
   return (
     <div
-      ref={setDragRef}
-      {...listeners}
-      {...attributes}
       className={cn(
-        "group relative rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] overflow-hidden hover:border-[hsl(var(--primary)/0.4)] hover:shadow-xl hover:shadow-[hsl(var(--primary)/0.05)] transition-all duration-300",
-        isDragging && "opacity-40 scale-95"
+        "group relative rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] overflow-hidden hover:border-[hsl(var(--primary)/0.4)] hover:shadow-xl hover:shadow-[hsl(var(--primary)/0.05)] transition-all duration-300"
       )}
-      style={{ cursor: isDragging ? "grabbing" : "grab" }}
     >
-      {/* Left Accent Bar */}
-      <div className={cn("absolute left-0 top-0 bottom-0 w-1", themeColor)} />
-
       <div className="p-4">
         {/* Status Dot (Absolute) */}
         <div className="absolute top-4 right-4 flex flex-col items-end gap-2">
-          {/* Uptime indicator */}
-          {isRunning && (
-            <div className="flex items-center gap-1" title={`Uptime: ${branch.uptime_status}${branch.uptime_response_ms ? ` · ${branch.uptime_response_ms}ms` : ""}`}>
-              <span className={`h-2 w-2 rounded-full ${
-                branch.uptime_status === "up" ? "bg-emerald-400" :
-                branch.uptime_status === "down" ? "bg-red-500 animate-pulse" :
-                "bg-zinc-500"
-              }`} />
-            </div>
-          )}
           {isBusy ? (
             <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20">
               <Loader2 size={10} className="animate-spin text-blue-400" />
@@ -769,19 +563,6 @@ function BranchCard({
               >
                 <Copy size={13} />
               </Button>
-              {/* Mail Catcher — dev/staging only */}
-              {(branch.environment === "development" || branch.environment === "staging") && (
-                <a
-                  href={`${process.env.NEXT_PUBLIC_MAILHOG_URL || "http://localhost:8025"}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title="View Intercepted Emails (MailHog)"
-                >
-                  <Button variant="outline" size="sm" className="h-8 w-8 p-0 hover:border-amber-500/40 hover:text-amber-400">
-                    <Mail size={13} />
-                  </Button>
-                </a>
-              )}
               <Link href={`/projects/${projectId}/branches/${branch.id}/terminal`}>
                  <Button variant="outline" size="sm" className="h-8 w-8 p-0" title="Terminal">
                   <Terminal size={13} />
@@ -791,11 +572,6 @@ function BranchCard({
                  <Button variant="outline" size="sm" className="h-8 w-8 p-0" title="Backups">
                   <Database size={13} />
                  </Button>
-              </Link>
-              <Link href={`/projects/${projectId}/branches/${branch.id}/uptime`}>
-                <Button variant="outline" size="sm" className={`h-8 w-8 p-0 ${branch.uptime_status === "down" ? "border-red-500/40 text-red-400" : ""}`} title="Uptime Monitor">
-                  <Activity size={13} />
-                </Button>
               </Link>
             </div>
           </div>
@@ -812,7 +588,7 @@ function BranchCard({
                 >
                   <option value="" disabled>Select source branch...</option>
                   {allBranches.filter(b => b.id !== branch.id).map(b => (
-                    <option key={b.id} value={b.id}>{b.name} ({b.environment})</option>
+                    <option key={b.id} value={b.id}>{b.name}</option>
                   ))}
                 </select>
                 <Button
@@ -837,45 +613,7 @@ function BranchCard({
             </div>
           )}
 
-          {/* Quick Promotion */}
-          <div className="grid grid-cols-2 gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-             {branch.environment === "development" && (
-               <Button
-                 variant="ghost"
-                 size="sm"
-                 className="h-7 text-[10px] gap-1 text-[hsl(var(--muted-foreground))] hover:text-amber-400 hover:bg-amber-400/10"
-                 loading={isPromoting}
-                 disabled={isBusy}
-                 onClick={() => promote("staging")}
-               >
-                 <ChevronRight size={10} /> To Staging
-               </Button>
-             )}
-             {(branch.environment === "development" || branch.environment === "staging") && (
-               <Button
-                 variant="ghost"
-                 size="sm"
-                 className="h-7 text-[10px] gap-1 text-[hsl(var(--muted-foreground))] hover:text-emerald-400 hover:bg-emerald-400/10"
-                 loading={isPromoting}
-                 disabled={isBusy}
-                 onClick={() => promote("production")}
-               >
-                 <ChevronRight size={10} /> To Production
-               </Button>
-             )}
-             {branch.environment === "staging" && (
-               <Button
-                 variant="ghost"
-                 size="sm"
-                 className="h-7 text-[10px] gap-1 text-[hsl(var(--muted-foreground))] hover:text-violet-400 hover:bg-violet-400/10"
-                 loading={isPromoting}
-                 disabled={isBusy}
-                 onClick={() => promote("development")}
-               >
-                 <ChevronRight size={10} /> Back to Dev
-               </Button>
-             )}
-          </div>
+
 
           {/* Neutralization badge */}
           {branch.is_neutralized && (
@@ -1293,230 +1031,16 @@ function EnvironmentVariablesSettings({ projectId, branches }: { projectId: stri
 }
 
 
-// ── Custom Domains Settings ────────────────────────────────────
 
-function CustomDomainsSettings({ project, projectId }: { project: ProjectDetail; projectId: string }) {
-  const qc = useQueryClient();
-  const [domainInput, setDomainInput] = React.useState(project.custom_domain || "");
-  const [isEditing, setIsEditing] = React.useState(!project.custom_domain);
-
-  const cnameTarget = `${project.slug}.${process.env.NEXT_PUBLIC_TRAEFIK_DOMAIN || "localhost"}`;
-
-  const { mutate: setDomain, isPending: isSetting } = useMutation({
-    mutationFn: () => domainsApi.set(projectId, domainInput.trim()),
-    onSuccess: () => { 
-      qc.invalidateQueries({ queryKey: ["project", projectId] });
-      setIsEditing(false); 
-    },
-    onError: (err: any) => alert(err.response?.data?.detail || "Failed to set domain"),
-  });
-
-  const { mutate: verifyDomain, isPending: isVerifying } = useMutation({
-    mutationFn: () => domainsApi.verify(projectId),
-    onSuccess: (res) => {
-      if (res.data.verified) {
-        qc.invalidateQueries({ queryKey: ["project", projectId] });
-      } else {
-        alert(`Verification failed: ${res.data.message}`);
-      }
-    },
-    onError: (err: any) => alert(err.response?.data?.detail || "Verification failed"),
-  });
-
-  const { mutate: removeDomain, isPending: isRemoving } = useMutation({
-    mutationFn: () => domainsApi.remove(projectId),
-    onSuccess: () => { 
-      qc.invalidateQueries({ queryKey: ["project", projectId] });
-      setDomainInput(""); 
-      setIsEditing(true); 
-    },
-    onError: (err: any) => alert(err.response?.data?.detail || "Failed to remove domain"),
-  });
-
-  return (
-    <Card className="p-4 space-y-4 shadow-sm border-[hsl(var(--border))]">
-      <div className="flex items-center justify-between">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] flex items-center gap-2">
-          <Globe size={12} />
-          Project Custom Domain
-        </h3>
-        <span className="text-[9px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 font-bold">
-          Wildcard & TLS Auto
-        </span>
-      </div>
-
-      <p className="text-[10px] text-[hsl(var(--muted-foreground))] leading-relaxed">
-        Set a root domain for your project. Branches will automatically receive subdomains (e.g., <code>branch-name.yourdomain.com</code>). 
-        Production branches will also be accessible at the root domain.
-      </p>
-
-      <div className="rounded-lg bg-[hsl(var(--secondary)/0.3)] p-3 border border-[hsl(var(--border))] space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-bold uppercase text-[hsl(var(--muted-foreground))]">Current Domain</span>
-          {project.custom_domain && (
-            <div className="flex items-center gap-1">
-              {project.custom_domain_verified ? (
-                <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-400">
-                  <CheckCircle2 size={10} /> Verified
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 text-[9px] font-bold text-amber-400">
-                  <AlertCircle size={10} /> Pending Verification
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {project.custom_domain && !isEditing ? (
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <Globe size={12} className="text-blue-400 shrink-0" />
-              <code className="text-[11px] font-mono bg-[hsl(var(--secondary))] px-2 py-1 rounded truncate flex-1">
-                {project.custom_domain}
-              </code>
-            </div>
-            <div className="flex items-center gap-1 shrink-0">
-              {!project.custom_domain_verified && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-[10px] text-blue-400 border-blue-500/30 hover:bg-blue-500/10"
-                  loading={isVerifying}
-                  onClick={() => verifyDomain()}
-                >
-                  Verify
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 w-7 p-0 text-[hsl(var(--muted-foreground))] hover:text-red-400"
-                loading={isRemoving}
-                onClick={() => {
-                  if (confirm(`Remove domain "${project.custom_domain}"? This will disable custom subdomains for all branches.`)) {
-                    removeDomain();
-                  }
-                }}
-              >
-                <Trash2 size={12} />
-              </Button>
-              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setIsEditing(true)}>
-                <RefreshCw size={12} />
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="e.g. mycompany.com"
-              className="flex-1 bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded px-3 py-1 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
-              value={domainInput}
-              onChange={(e) => setDomainInput(e.target.value)}
-            />
-            <Button
-              size="sm"
-              className="h-8 text-[11px] font-bold px-4"
-              loading={isSetting}
-              onClick={() => setDomain()}
-            >
-              Set Domain
-            </Button>
-            {project.custom_domain && (
-               <Button variant="ghost" size="sm" className="h-8" onClick={() => { setIsEditing(false); setDomainInput(project.custom_domain || ""); }}>
-                 Cancel
-               </Button>
-            )}
-          </div>
-        )}
-
-        {project.custom_domain && (
-          <div className="pt-2 space-y-1">
-            <p className="text-[9px] font-bold text-[hsl(var(--muted-foreground))] uppercase tracking-tight">Example Routing:</p>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="bg-[hsl(var(--secondary)/0.5)] p-1.5 rounded border border-[hsl(var(--border))]">
-                <p className="text-[8px] text-[hsl(var(--muted-foreground))] uppercase">Main Branch</p>
-                <p className="text-[10px] font-mono text-emerald-400 truncate">https://{project.custom_domain}</p>
-              </div>
-              <div className="bg-[hsl(var(--secondary)/0.5)] p-1.5 rounded border border-[hsl(var(--border))]">
-                <p className="text-[8px] text-[hsl(var(--muted-foreground))] uppercase">Staging Branch</p>
-                <p className="text-[10px] font-mono text-amber-400 truncate">https://staging.{project.custom_domain}</p>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* DNS Instructions */}
-      <div className="mt-4 pt-4 border-t border-[hsl(var(--border))]">
-        <h4 className="text-[10px] font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] mb-2 flex items-center gap-1.5">
-          <Link2 size={10} />
-          DNS Setup Instructions
-        </h4>
-        <div className="rounded-lg bg-[hsl(var(--secondary)/0.5)] p-3 border border-[hsl(var(--border))] space-y-2">
-          <div className="flex items-start gap-2">
-            <span className="text-[10px] font-bold text-[hsl(var(--primary))] mt-0.5 shrink-0">1.</span>
-            <p className="text-[10px] text-[hsl(var(--muted-foreground))]">
-              Go to your DNS provider (Cloudflare, Route53, etc.)
-            </p>
-          </div>
-          <div className="flex items-start gap-2">
-            <span className="text-[10px] font-bold text-[hsl(var(--primary))] mt-0.5 shrink-0">2.</span>
-            <div className="text-[10px] text-[hsl(var(--muted-foreground))] space-y-1">
-              <p>Add the following records:</p>
-              <div className="bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] p-2 rounded font-mono text-[9px] space-y-1">
-                <div className="flex justify-between">
-                  <span>Type: <code className="text-blue-400">CNAME</code></span>
-                  <span>Name: <code className="text-blue-400">@</code> (or root)</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Target:</span>
-                  <code className="text-emerald-400">{cnameTarget}</code>
-                </div>
-                <div className="border-t border-[hsl(var(--border))] my-1" />
-                <div className="flex justify-between">
-                  <span>Type: <code className="text-blue-400">CNAME</code></span>
-                  <span>Name: <code className="text-blue-400">*</code> (wildcard)</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Target:</span>
-                  <code className="text-emerald-400">{cnameTarget}</code>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-start gap-2">
-            <span className="text-[10px] font-bold text-[hsl(var(--primary))] mt-0.5 shrink-0">3.</span>
-            <p className="text-[10px] text-[hsl(var(--muted-foreground))]">
-              Click <strong>Verify</strong>. Once verified, TLS (Let&apos;s Encrypt) will be automatically provisioned for all subdomains.
-            </p>
-          </div>
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-
-// ── Notification Settings ──────────────────────────────────────
 
 function NotificationSettings({ project, projectId }: { project: ProjectDetail; projectId: string }) {
   const qc = useQueryClient();
-  const [email, setEmail] = React.useState(project.notification_email || "");
   const [webhookUrl, setWebhookUrl] = React.useState(project.notification_webhook_url || "");
-  const [slackUrl, setSlackUrl] = React.useState(project.notification_slack_url || "");
-  const [tgToken, setTgToken] = React.useState(project.notification_telegram_bot_token || "");
-  const [tgChatId, setTgChatId] = React.useState(project.notification_telegram_chat_id || "");
   const [saved, setSaved] = React.useState(false);
 
   const handleSave = () => {
     projectsApi.update(projectId, {
-      notification_email: email.trim() || null,
       notification_webhook_url: webhookUrl.trim() || null,
-      notification_slack_url: slackUrl.trim() || null,
-      notification_telegram_bot_token: tgToken.trim() || null,
-      notification_telegram_chat_id: tgChatId.trim() || null,
     }).then(() => {
       qc.invalidateQueries({ queryKey: ["project", projectId] });
       setSaved(true);
@@ -1528,32 +1052,19 @@ function NotificationSettings({ project, projectId }: { project: ProjectDetail; 
     <Card className="p-4 space-y-4 shadow-sm border-[hsl(var(--border))]">
       <div className="flex items-center justify-between">
         <h3 className="text-xs font-bold uppercase tracking-wider text-[hsl(var(--muted-foreground))] flex items-center gap-2">
-          <Mail size={12} />
+          <Bell size={12} />
           Notifications
         </h3>
         <span className="text-[9px] px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-400 font-bold">
-          Build &amp; Uptime Events
+          Build Events
         </span>
       </div>
 
       <p className="text-[10px] text-[hsl(var(--muted-foreground))] leading-relaxed">
-        Get notified on build and uptime events. Supports Email, Webhook, Slack, and Telegram.
+        Get notified on build events via a webhook URL. Opsway will POST a JSON payload on each build status change.
       </p>
 
       <div className="space-y-3">
-        <div>
-          <label className="text-[10px] font-bold uppercase text-[hsl(var(--muted-foreground))] block mb-1">
-            Notification Email
-          </label>
-          <input
-            type="email"
-            placeholder="team@yourcompany.com"
-            className="w-full bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </div>
-
         <div>
           <label className="text-[10px] font-bold uppercase text-[hsl(var(--muted-foreground))] block mb-1">
             Webhook URL <span className="text-[8px] normal-case font-normal">(any HTTP endpoint)</span>
@@ -1567,57 +1078,17 @@ function NotificationSettings({ project, projectId }: { project: ProjectDetail; 
           />
         </div>
 
-        <div>
-          <label className="text-[10px] font-bold uppercase text-[hsl(var(--muted-foreground))] block mb-1">
-            Slack Incoming Webhook
-          </label>
-          <input
-            type="url"
-            placeholder="https://hooks.slack.com/services/..."
-            className="w-full bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
-            value={slackUrl}
-            onChange={(e) => setSlackUrl(e.target.value)}
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="text-[10px] font-bold uppercase text-[hsl(var(--muted-foreground))] block mb-1">
-              Telegram Bot Token
-            </label>
-            <input
-              type="password"
-              placeholder="123456:ABC-..."
-              className="w-full bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
-              value={tgToken}
-              onChange={(e) => setTgToken(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="text-[10px] font-bold uppercase text-[hsl(var(--muted-foreground))] block mb-1">
-              Telegram Chat ID
-            </label>
-            <input
-              type="text"
-              placeholder="-100xxxxxxxxxx"
-              className="w-full bg-[hsl(var(--secondary))] border border-[hsl(var(--border))] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"
-              value={tgChatId}
-              onChange={(e) => setTgChatId(e.target.value)}
-            />
-          </div>
-        </div>
-
         <div className="flex items-center gap-2 pt-1">
           <Button
             size="sm"
             className="h-8 text-[11px] font-bold px-4"
             onClick={handleSave}
           >
-            {saved ? <><CheckCircle2 size={12} className="mr-1.5" /> Saved!</> : "Save Notifications"}
+            {saved ? <><CheckCircle2 size={12} className="mr-1.5" /> Saved!</> : "Save Webhook"}
           </Button>
-          {(email || webhookUrl || slackUrl || (tgToken && tgChatId)) && (
+          {webhookUrl && (
             <p className="text-[9px] text-[hsl(var(--muted-foreground))]">
-              Active: {[email && "Email", webhookUrl && "Webhook", slackUrl && "Slack", (tgToken && tgChatId) && "Telegram"].filter(Boolean).join(", ")}
+              Active: Webhook
             </p>
           )}
         </div>
@@ -1630,8 +1101,6 @@ function NotificationSettings({ project, projectId }: { project: ProjectDetail; 
             { label: "🚀 Build Started", color: "text-blue-400 bg-blue-500/10 border-blue-500/20" },
             { label: "✅ Build Succeeded", color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" },
             { label: "❌ Build Failed", color: "text-red-400 bg-red-500/10 border-red-500/20" },
-            { label: "🔴 Uptime Down", color: "text-red-400 bg-red-500/10 border-red-500/20" },
-            { label: "🟢 Uptime Recovered", color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" },
           ].map(({ label, color }) => (
             <span key={label} className={`text-[9px] font-semibold px-2 py-0.5 rounded-full border ${color}`}>
               {label}
@@ -1642,7 +1111,6 @@ function NotificationSettings({ project, projectId }: { project: ProjectDetail; 
     </Card>
   );
 }
-
 
 // ── GitLab Token Settings ──────────────────────────────────────
 

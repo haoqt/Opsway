@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional, Any
 from pydantic import BaseModel, EmailStr, Field
 
-from app.models import GitProvider, EnvironmentType, BuildStatus, UserRole, UptimeStatus, ProjectType
+from app.models import GitProvider, EnvironmentType, BuildStatus, UserRole
 
 
 # ──────────────────────────────────────────────────────────────
@@ -89,7 +89,6 @@ class MemberUpdate(BaseModel):
 class ProjectCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: str | None = None
-    project_type: ProjectType = ProjectType.ODOO
     git_provider: GitProvider = GitProvider.GITHUB
     repo_full_name: str = Field(..., description="owner/repo format")
     odoo_version: str | None = Field(None, description="15, 16, 17, or 18")
@@ -114,16 +113,9 @@ class ProjectUpdate(BaseModel):
     build_limit_dev: int | None = None
     build_limit_staging: int | None = None
     build_limit_production: int | None = None
-    custom_domain: str | None = None
     backup_schedule: str | None = None
-    backup_retention_daily: int | None = None
-    backup_retention_weekly: int | None = None
-    backup_retention_monthly: int | None = None
-    notification_email: str | None = None
+    backup_max_count: int | None = None
     notification_webhook_url: str | None = None
-    notification_slack_url: str | None = None
-    notification_telegram_bot_token: str | None = None
-    notification_telegram_chat_id: str | None = None
     gitlab_token: str | None = None
     gitlab_url: str | None = None
 
@@ -133,7 +125,6 @@ class ProjectOut(BaseModel):
     name: str
     slug: str
     description: str | None
-    project_type: ProjectType
     git_provider: GitProvider
     repo_owner: str
     repo_name: str
@@ -152,17 +143,9 @@ class ProjectOut(BaseModel):
     build_limit_dev: int
     build_limit_staging: int
     build_limit_production: int
-    custom_domain: str | None = None
-    custom_domain_verified: bool = False
     backup_schedule: str = "daily"
-    backup_retention_daily: int = 7
-    backup_retention_weekly: int = 4
-    backup_retention_monthly: int = 3
-    notification_email: str | None = None
+    backup_max_count: int = 10
     notification_webhook_url: str | None = None
-    notification_slack_url: str | None = None
-    notification_telegram_bot_token: str | None = None
-    notification_telegram_chat_id: str | None = None
     gitlab_url: str | None = None
 
     model_config = {"from_attributes": True}
@@ -220,9 +203,6 @@ class BranchOut(BaseModel):
     cloned_from_branch_id: uuid.UUID | None = None
     current_task: str | None = None
     current_task_status: str | None = None
-    uptime_status: UptimeStatus = UptimeStatus.UNKNOWN
-    uptime_last_checked_at: datetime | None = None
-    uptime_response_ms: int | None = None
     postgres_version: str | None = None
     odoo_image: str | None = None
     custom_addons_path: str | None = None
@@ -306,40 +286,29 @@ class GlobalStats(BaseModel):
     projects: int
 
 
-class SetDomainRequest(BaseModel):
-    domain: str
-
-
-class DomainVerification(BaseModel):
-    domain: str
-    verified: bool
-    cname_target: str  # e.g. "branch--project.localhost"
-    message: str | None = None
-
-
-class UptimeCheckOut(BaseModel):
-    id: uuid.UUID
-    branch_id: uuid.UUID
-    status: UptimeStatus
-    response_ms: int | None
-    error: str | None
-    checked_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
 class TransferOwnershipRequest(BaseModel):
     new_owner_user_id: uuid.UUID
 
 
-class CIFilesOut(BaseModel):
+class PipelineJob(BaseModel):
+    name: str
+    image: str | None = None
+    exec_in: str | None = None
+    script: list[str] = []
+    allow_failure: bool = False
+    when: str = "auto"
+
+class PipelineStage(BaseModel):
+    name: str
+    jobs: list[PipelineJob] = []
+
+class PipelineConfig(BaseModel):
+    stages: list[PipelineStage] = []
+
+class PipelineConfigOut(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
-    files: dict  # {filename: content_string}
+    config: PipelineConfig
     updated_at: datetime
 
     model_config = {"from_attributes": True}
-
-
-class CIFileUpdate(BaseModel):
-    content: str

@@ -48,15 +48,7 @@ class UserRole(str, enum.Enum):
     VIEWER = "viewer"
 
 
-class UptimeStatus(str, enum.Enum):
-    UP = "up"
-    DOWN = "down"
-    UNKNOWN = "unknown"
 
-
-class ProjectType(str, enum.Enum):
-    ODOO = "odoo"
-    GENERIC = "generic"
 
 
 # ──────────────────────────────────────────────────────────────
@@ -123,12 +115,6 @@ class Project(Base):
     deploy_key_public: Mapped[str | None] = mapped_column(Text)
     deploy_key_private: Mapped[str | None] = mapped_column(Text)  # encrypted
 
-    # Project type
-    project_type: Mapped[ProjectType] = mapped_column(
-        Enum(ProjectType, native_enum=False, values_callable=lambda x: [m.value for m in x]),
-        default=ProjectType.ODOO, nullable=False
-    )
-
     # Odoo config
     odoo_version: Mapped[str | None] = mapped_column(String(10))  # e.g. "17"
     custom_addons_path: Mapped[str | None] = mapped_column(String(255), default="custom_addons")
@@ -141,29 +127,16 @@ class Project(Base):
     build_limit_staging: Mapped[int] = mapped_column(Integer, default=2)
     build_limit_production: Mapped[int] = mapped_column(Integer, default=1)
 
-    # Domain settings (Phase 2)
-    custom_domain: Mapped[str | None] = mapped_column(String(255))  # e.g. "mycompany.com"
-    custom_domain_verified: Mapped[bool] = mapped_column(Boolean, default=False)
-    custom_domain_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-    # Backup policy (Phase 2)
+    # Backup policy
     backup_schedule: Mapped[str] = mapped_column(String(50), default="daily")  # daily/weekly/none
-    backup_retention_daily: Mapped[int] = mapped_column(Integer, default=7)
-    backup_retention_weekly: Mapped[int] = mapped_column(Integer, default=4)
-    backup_retention_monthly: Mapped[int] = mapped_column(Integer, default=3)
+    backup_max_count: Mapped[int] = mapped_column(Integer, default=10)  # keep N most recent
 
     # Git tokens (for webhook auto-registration)
     gitlab_token: Mapped[str | None] = mapped_column(Text)
     gitlab_url: Mapped[str | None] = mapped_column(String(512))  # e.g. https://gitlab.mycompany.com
 
-    # Notifications (Phase 2)
-    notification_email: Mapped[str | None] = mapped_column(String(255))
+    # Notifications
     notification_webhook_url: Mapped[str | None] = mapped_column(String(512))
-
-    # Notifications (Phase 3) — Slack & Telegram
-    notification_slack_url: Mapped[str | None] = mapped_column(String(512))
-    notification_telegram_bot_token: Mapped[str | None] = mapped_column(String(255))
-    notification_telegram_chat_id: Mapped[str | None] = mapped_column(String(100))
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -226,7 +199,7 @@ class Branch(Base):
     # Odoo version (overrides project default)
     odoo_version: Mapped[str | None] = mapped_column(String(10))
 
-    # Per-branch Odoo overrides (project_type == ODOO only)
+    # Per-branch Odoo overrides
     postgres_version: Mapped[str | None] = mapped_column(String(30))
     odoo_image: Mapped[str | None] = mapped_column(String(512))
     custom_addons_path: Mapped[str | None] = mapped_column(String(255))
@@ -251,13 +224,7 @@ class Branch(Base):
     current_task: Mapped[str | None] = mapped_column(String(50))
     current_task_status: Mapped[str | None] = mapped_column(String(50))  # pending, running, failed
 
-    # Uptime monitoring (Phase 3)
-    uptime_status: Mapped[UptimeStatus] = mapped_column(
-        Enum(UptimeStatus, native_enum=False, values_callable=lambda x: [m.value for m in x]),
-        default=UptimeStatus.UNKNOWN, nullable=False
-    )
-    uptime_last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    uptime_response_ms: Mapped[int | None] = mapped_column(Integer)
+
 
     # Last deploy
     last_commit_sha: Mapped[str | None] = mapped_column(String(40))
@@ -361,20 +328,4 @@ class ProjectCIConfig(Base):
     project: Mapped["Project"] = relationship(back_populates="ci_config")
 
 
-# ──────────────────────────────────────────────────────────────
-# UptimeCheck
-# ──────────────────────────────────────────────────────────────
 
-class UptimeCheck(Base):
-    __tablename__ = "uptime_checks"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    branch_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("branches.id", ondelete="CASCADE"), index=True)
-
-    status: Mapped[UptimeStatus] = mapped_column(
-        Enum(UptimeStatus, native_enum=False, values_callable=lambda x: [m.value for m in x]),
-        nullable=False
-    )
-    response_ms: Mapped[int | None] = mapped_column(Integer)
-    error: Mapped[str | None] = mapped_column(String(500))
-    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

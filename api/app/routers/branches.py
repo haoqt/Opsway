@@ -187,50 +187,7 @@ async def list_builds(
         .limit(limit)
     )
     return result.scalars().all()
-@router.post("/{branch_id}/switch-environment", response_model=BranchOut)
-async def switch_branch_environment(
-    project_id: str,
-    branch_id: str,
-    target_env: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Switch a branch to any environment (Dev, Staging, Prod)."""
-    project = await get_project_or_404(project_id, db, current_user)
-    await require_developer(project, db, current_user)
-    branch = await get_branch_or_404(branch_id, project.id, db)
 
-    # Validate target environment
-    try:
-        new_env = EnvironmentType(target_env)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid environment type: {target_env}"
-        )
-
-    if branch.environment == new_env:
-        return branch
-
-    # If switching to Production, check if one already exists
-    if new_env == EnvironmentType.PRODUCTION:
-        result = await db.execute(
-            select(Branch).where(
-                Branch.project_id == project.id,
-                Branch.environment == EnvironmentType.PRODUCTION,
-                Branch.is_active == True,
-                Branch.id != branch.id
-            )
-        )
-        if result.scalar_one_or_none():
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="A production branch already exists for this project."
-            )
-
-    branch.environment = new_env
-    await db.commit()
-    return branch
 
 
 @router.post("/{branch_id}/clone-from/{source_branch_id}", response_model=MessageResponse)
@@ -283,7 +240,7 @@ async def neutralize_branch(
 ):
     """Manually trigger database neutralization for a branch.
 
-    Disables cron jobs, redirects mail to MailHog, clears OAuth tokens.
+    Disables cron jobs, disables mail servers, clears OAuth tokens.
     Typically auto-triggered after cloning, but can be run manually.
     """
     project = await get_project_or_404(project_id, db, current_user)

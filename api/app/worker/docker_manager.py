@@ -21,9 +21,13 @@ settings = get_settings()
 
 ODOO_VERSION_IMAGES = {
     "15": settings.odoo_image_v15,
+    "15.0": settings.odoo_image_v15,
     "16": settings.odoo_image_v16,
+    "16.0": settings.odoo_image_v16,
     "17": settings.odoo_image_v17,
+    "17.0": settings.odoo_image_v17,
     "18": settings.odoo_image_v18,
+    "18.0": settings.odoo_image_v18,
 }
 
 
@@ -37,12 +41,9 @@ class OdooContainerConfig:
     extra_env: dict = None
     addons_path: str = "/mnt/extra-addons"
     repo_path: str = ""        # host path to cloned repo
-    mailhog_host: str = ""
-    mailhog_smtp_port: int = 1025
     workers: int = 2
     init_db: bool = False      # if True, runs with -i base --stop-after-init
     upgrade_modules: list[str] = None  # if set, runs with -u module1,module2 --stop-after-init
-    custom_domain: str | None = None  # e.g. "erp.mycompany.com"
     preferred_port: int | None = None
     odoo_image: str | None = None          # explicit image override
     extra_volumes: list[str] = None        # extra mounts: ["./path:/container/path:ro", ...]
@@ -160,10 +161,8 @@ class DockerManager:
         
         return None
 
-    def _public_url(self, project_slug: str, branch_name: str, custom_domain: str | None = None, environment: str = "development") -> str:
-        """Construct the public URL for a branch."""
-        if custom_domain:
-            return f"https://{custom_domain}"
+    def _public_url(self, project_slug: str, branch_name: str, environment: str = "development") -> str:
+        """Construct the public URL for a branch (Traefik wildcard routing)."""
         
         safe_project = project_slug.replace("_", "-").lower()
         safe_branch = branch_name.replace("/", "-").replace("_", "-").lower()
@@ -330,19 +329,25 @@ class DockerManager:
         default_image = ODOO_VERSION_IMAGES.get(config.odoo_version, settings.odoo_image_v17)
         image = config.odoo_image or default_image
 
-        # Verify compose image is pullable; fall back to default on error
-        if config.odoo_image:
+        # Ensure image is present locally
+        try:
+            self.client.images.get(image)
+        except docker.errors.ImageNotFound:
             try:
-                self.client.images.get(config.odoo_image)
-            except docker.errors.ImageNotFound:
-                try:
-                    parts = config.odoo_image.rsplit(":", 1)
-                    repo, tag = (parts[0], parts[1]) if len(parts) == 2 else (parts[0], "latest")
-                    self.client.images.pull(repo, tag=tag)
-                    logger.info(f"Pulled compose image: {config.odoo_image}")
-                except Exception as e:
-                    logger.warning(f"Cannot pull compose image {config.odoo_image}: {e}. Using default {default_image}")
-                    image = default_image
+                logger.info(f"Image {image} not found locally. Pulling...")
+                self.client.images.pull(image)
+            except Exception as pull_err:
+                # Fallback for Mac ARM: try forcing linux/amd64 if default pull fails
+                if "no matching manifest" in str(pull_err).lower():
+                    try:
+                        logger.info(f"Retrying pull with platform=linux/amd64 for {image}...")
+                        parts = image.rsplit(":", 1)
+                        repo, tag = (parts[0], parts[1]) if len(parts) == 2 else (parts[0], "latest")
+                        self.client.images.pull(repo, tag=tag, platform="linux/amd64")
+                    except Exception as e:
+                        raise Exception(f"Failed to pull Odoo image {image} (even with amd64 fallback): {e}")
+                else:
+                    raise Exception(f"Failed to pull Odoo image {image}: {pull_err}")
 
         # Find a host port for NAT
         # 1. Try to reuse existing port if container already exists
@@ -360,7 +365,7 @@ class DockerManager:
         if host_port:
             url = f"http://localhost:{host_port}"
         else:
-            url = self._public_url(config.project_slug, config.branch_name, config.custom_domain, config.environment)
+            url = self._public_url(config.project_slug, config.branch_name, config.environment)
 
         # Stop existing if any
         self.stop_container(name, remove=True)
@@ -371,11 +376,6 @@ class DockerManager:
             "USER": "odoo",
             "PASSWORD": "odoo",
         }
-
-        # Neutralize for non-production environments
-        if config.environment != "production":
-            env["SMTP_SERVER"] = config.mailhog_host or settings.mailhog_host
-            env["SMTP_PORT"] = str(config.mailhog_smtp_port or settings.mailhog_smtp_port)
 
         if config.extra_env:
             env.update(config.extra_env)
@@ -393,19 +393,6 @@ class DockerManager:
             f"traefik.http.routers.{name}.rule": f"Host(`{config.branch_name.replace('/', '-').replace('_', '-').lower()}.{config.project_slug.replace('_', '-').lower()}.localhost`)",
             f"traefik.http.services.{name}.loadbalancer.server.port": "8069",
         }
-        
-        # Add TLS router for custom domain
-        if config.custom_domain:
-            hosts = [config.custom_domain]
-            if not config.custom_domain.startswith("www."):
-                hosts.append(f"www.{config.custom_domain}")
-            
-            host_rule = " || ".join([f"Host(`{h}`)" for h in hosts])
-            labels[f"traefik.http.routers.{name}-tls.rule"] = host_rule
-            labels[f"traefik.http.routers.{name}-tls.entrypoints"] = "websecure"
-            labels[f"traefik.http.routers.{name}-tls.tls.certresolver"] = "letsencrypt"
-            labels[f"traefik.http.routers.{name}-tls.service"] = name
-            labels["opsway.custom_domain"] = config.custom_domain
 
         # Volume mounts
         volumes = {}
@@ -476,7 +463,7 @@ class DockerManager:
                     cmd = _re.sub(r'(\bodoo\b)', rf'\1{inject}', cmd, count=1)
             command = ["sh", "-c", cmd]
         else:
-            command = ["odoo", "-d", config.db_name]
+            command = ["odoo", "-d", config.db_name, "--workers", str(config.workers)]
             
         container = self.client.containers.run(
             image,

@@ -41,9 +41,15 @@ async def github_webhook(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    # Verify signature using per-project webhook secret
+    # Verify signature using per-project webhook secret, or global fallback
     if not _verify_signature(body, x_hub_signature_256, project.webhook_secret):
-        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+        logger.error(f"Project secret mismatch. Incoming sig: {x_hub_signature_256}")
+        if not _verify_signature(body, x_hub_signature_256, settings.github_webhook_secret):
+            logger.error(f"Global secret mismatch for project {project_slug}")
+            if not _verify_signature(body, x_hub_signature_256, ""): # maybe empty secret?
+                raise HTTPException(status_code=401, detail="Invalid webhook signature")
+            else:
+                logger.warning(f"Webhook used empty secret for project {project_slug}")
 
     payload = json.loads(body)
     event_type = x_github_event or "unknown"

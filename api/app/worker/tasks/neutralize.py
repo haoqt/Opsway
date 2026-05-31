@@ -4,7 +4,7 @@ to non-production environments (like Odoo.sh does).
 
 Actions:
   1. Disable all ir.cron (scheduled actions)
-  2. Mask/redirect mail servers to MailHog
+  2. Disable outgoing mail servers
   3. Disable fetchmail servers
   4. Clear OAuth tokens and webhook URLs
 """
@@ -35,11 +35,9 @@ NEUTRALIZE_QUERIES = [
     ("Disabling scheduled actions (ir.cron)", 
      "UPDATE ir_cron SET active = false WHERE active = true;"),
 
-    # 2. Redirect mail servers to MailHog
-    ("Redirecting mail servers to MailHog",
-     "UPDATE ir_mail_server SET smtp_host = 'mailhog', smtp_port = 1025, "
-     "smtp_user = '', smtp_pass = '', smtp_encryption = 'none' "
-     "WHERE active = true;"),
+    # 2. Disable outgoing mail servers
+    ("Disabling outgoing mail servers",
+     "UPDATE ir_mail_server SET active = false WHERE active = true;"),
 
     # 3. Disable fetchmail servers
     ("Disabling fetchmail servers",
@@ -86,7 +84,7 @@ def neutralize_database(branch_id: str):
     """
     Neutralize an Odoo database for non-production use.
     
-    This disables cron jobs, redirects mail to MailHog, and clears
+    This disables cron jobs, disables mail servers, and clears
     sensitive credentials — exactly like Odoo.sh does when cloning
     production to staging.
     """

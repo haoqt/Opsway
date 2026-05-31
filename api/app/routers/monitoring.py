@@ -77,7 +77,6 @@ def get_stats(current_user: User = Depends(get_current_user)):
             "api": check_service("opsway_api"),
             "worker": check_service("opsway_worker"),
             "beat": check_service("opsway_beat"),
-            "mailhog": check_service("opsway_mailhog"),
         },
         "instances": instances_data,
         "services": services_data

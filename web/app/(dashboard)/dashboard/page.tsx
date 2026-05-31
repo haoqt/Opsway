@@ -4,7 +4,7 @@ import { projectsApi, statsApi } from "@/lib/api";
 import { Project, Build, GlobalStats } from "@/lib/types";
 import { Topbar } from "@/components/layout/sidebar";
 import { Card, CardHeader, CardTitle, Skeleton, EmptyState } from "@/components/ui/primitives";
-import { BuildStatusBadge, EnvironmentBadge } from "@/components/ui/badges";
+import { BuildStatusBadge } from "@/components/ui/badges";
 import { formatTimeAgo, formatDuration, shortSha } from "@/lib/utils";
 import {
   Rocket, FolderGit2, CheckCircle2, XCircle,
